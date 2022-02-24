@@ -1,0 +1,1 @@
+{"version":3,"file":"index.js","sourceRoot":"","sources":["../../src/index.ts"],"names":[],"mappings":"AAAA,cAAc,aAAa,CAAC;AAC5B,cAAc,wBAAwB,CAAC;AACvC,cAAc,qBAAqB,CAAC","sourcesContent":["export * from './super-rpc';\r\nexport * from './rpc-descriptor-types';\r\nexport * from './rpc-message-types';"]}

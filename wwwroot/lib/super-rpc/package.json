@@ -1,0 +1,15 @@
+{
+    "name": "super-rpc",
+    "version": "1.0.1",
+    "description": "Object based RPC through any channel",
+    "homepage": "https://sly1024.github.io/super-rpc/",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Sly1024/super-rpc.git"
+    },
+    "main": "super-rpc.umd.js",
+    "module": "esm/index.js",
+    "types": "esm/index.d.ts",
+    "author": "szilveszter.safar@gmail.com",
+    "license": "MIT"
+}
