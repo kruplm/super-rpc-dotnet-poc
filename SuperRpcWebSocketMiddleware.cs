@@ -24,6 +24,8 @@ namespace SuperRPC
 
         private JsonSerializer jsonSerializer = new JsonSerializer();
 
+        MySerive service = new MySerive();
+
         public SuperRpcWebSocketMiddleware(RequestDelegate next)
         {
             _next = next;
@@ -79,23 +81,26 @@ namespace SuperRPC
             rpc.Connect(channel);
 
             // register host objects here
-            var service = new MySerive();
+            
             rpc.RegisterHostObject("service", service, new ObjectDescriptor {
                 Functions = new FunctionDescriptor[] { "Add", "Increment" },
                 ProxiedProperties = new PropertyDescriptor[] { "Counter" }
             });
 
-            rpc.RegisterHostFunction("squareIt", (int x) => {
-                
-                var f = rpc.GetProxyFunction<Func<int, int, Task<int>>>("myfunc");
-                var rs = f(4, 8);
-                rs.ContinueWith( t => Console.WriteLine("func call: {0}", t.Result));
+            rpc.RegisterHostFunction("squareIt", (int x) => "Hey, can you see me?");
 
-                var o = rpc.GetProxyObject<IService>("adder");
-                var result = o.Add(5, 6);
-                result.ContinueWith( t => Console.WriteLine("object method: {0}", t.Result));
+            rpc.RegisterHostFunction("testJsHost", () => {
+                var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc");
+                var rs = jsFunc("hello", "world");
+                rs.ContinueWith( t => Console.WriteLine("JS func call: {0}", t.Result));
 
-                return x * x;
+                var jsObj = rpc.GetProxyObject<IService>("jsObj");
+                var result = jsObj.Add(5, 6);
+                result.ContinueWith( t => Console.WriteLine("JS object method: {0}", t.Result));
+
+                var jsServiceFactory = rpc.CreateProxyClass<IService>("JsService");
+                var jsService = jsServiceFactory("12345");
+                jsService.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: ", t.Result));
             });
 
             rpc.RegisterHostClass("MyService", typeof(MySerive), new ClassDescriptor {

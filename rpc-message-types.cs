@@ -99,4 +99,7 @@ namespace SuperRPC
     public record RPC_AsyncCallbackCallMessage: RPC_FnCallMessageBase {
         public RPC_AsyncCallbackCallMessage() { action = "async_fn"; }
     }
+
+    public record RPC_Object(string objId, Dictionary<string, object?>? props, string? classId = null, string _rpc_type = "object");
+    public record RPC_Function(string objId, string _rpc_type = "function");
 }

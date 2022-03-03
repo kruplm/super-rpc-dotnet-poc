@@ -1,6 +1,6 @@
 const { SuperRPC } = superrpc;
 
-let rpc, service, squareIt, MyService;
+let rpc, service, squareIt, MyService, testJsHost;
 
 const ws = new WebSocket('ws://localhost:5050/super-rpc');
 ws.addEventListener('open', async () => {
@@ -15,15 +15,37 @@ ws.addEventListener('open', async () => {
 
     await rpc.requestRemoteDescriptors();
 
-    service = rpc.getProxyObject('service');
-    squareIt = rpc.getProxyFunction('squareIt');
-    MyService = rpc.getProxyClass('MyService');
-
-    rpc.registerHostFunction('myfunc', (s1, s2) => {
+    rpc.registerHostFunction('jsFunc', (s1, s2) => {
         console.log(s1, s2);
         return s1 + s2;
     }, {});
+
+
+    rpc.registerHostObject('jsObj', {
+        Add: (x, y) => x + y
+    }, {
+        functions: ['Add']
+    });
+
+    class JsService {
+        Add(a, b) {
+            return a + b;
+        }
+    }
+
+    rpc.registerHostClass('JsService', JsService, {
+        ctor: {},
+        instance: {
+            functions:['Add']
+        }
+    });
+
     rpc.sendRemoteDescriptors();
+
+    service = rpc.getProxyObject('service');
+    squareIt = rpc.getProxyFunction('squareIt');
+    MyService = rpc.getProxyClass('MyService');
+    testJsHost = rpc.getProxyFunction('testJsHost');
 });
 
 
