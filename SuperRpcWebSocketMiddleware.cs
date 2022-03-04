@@ -16,9 +16,9 @@ using System.Text;
 
 namespace SuperRPC
 {
-    public class SuperRpcWebSocketMiddleware
+    public class SuperRpcWebSocketMiddleware : RPCChannelReceive
     {
-        private readonly RequestDelegate _next;
+        private readonly RequestDelegate next;
 
         private const int ReceiveBufferSize = 4 * 1024;
 
@@ -26,9 +26,49 @@ namespace SuperRPC
 
         MySerive service = new MySerive();
 
-        public SuperRpcWebSocketMiddleware(RequestDelegate next)
+        private SuperRPC rpc;
+        public event EventHandler<MessageReceivedEventArgs> MessageReceived;
+
+        public SuperRpcWebSocketMiddleware(RequestDelegate next, SuperRPC rpc)
         {
-            _next = next;
+            this.next = next;
+            this.rpc = rpc;
+            rpc.Connect(this);
+
+              // register host objects here
+            
+            rpc.RegisterHostObject("service", service, new ObjectDescriptor {
+                Functions = new FunctionDescriptor[] { "Add", "Increment" },
+                ProxiedProperties = new PropertyDescriptor[] { "Counter" }
+            });
+
+            rpc.RegisterHostFunction("squareIt", (int x) => "Hey, can you see me?");
+
+            rpc.RegisterHostFunction("testJsHost", () => {
+                var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc");
+                var rs = jsFunc("hello", "world");
+                rs.ContinueWith( t => Console.WriteLine("JS func call: {0}", t.Result));
+
+                var jsObj = rpc.GetProxyObject<IService>("jsObj");
+                var result = jsObj.Add(5, 6);
+                result.ContinueWith( t => Console.WriteLine("JS object method: {0}", t.Result));
+
+                var jsServiceFactory = rpc.CreateProxyClass<IService>("JsService");
+                var jsService = jsServiceFactory("12345");
+                // jsService.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: ", t.Result));
+            });
+
+            rpc.RegisterHostClass("MyService", typeof(MySerive), new ClassDescriptor {
+                Ctor = new FunctionDescriptor {},
+                Static = new ObjectDescriptor {
+                    Functions = new FunctionDescriptor[] { "Mul" },
+                    ProxiedProperties = new PropertyDescriptor[] { "StaticCounter" }
+                },
+                Instance = new ObjectDescriptor {
+                    Functions = new FunctionDescriptor[] { "Add", "Increment" },
+                    ProxiedProperties = new PropertyDescriptor[] { "Counter" }
+                }
+            });
         }
 
         public async Task InvokeAsync(HttpContext context)
@@ -48,7 +88,7 @@ namespace SuperRPC
                 }
                 return;
             }
-            await _next(context);
+            await next(context);
         }
 
         public interface IService {
@@ -75,45 +115,7 @@ namespace SuperRPC
                 }
             }
 
-            var channel = new RPCAsyncAndReceiveChannel(SendMessage);
-
-            var rpc = new SuperRPC(() => Guid.NewGuid().ToString("N"));
-            rpc.Connect(channel);
-
-            // register host objects here
-            
-            rpc.RegisterHostObject("service", service, new ObjectDescriptor {
-                Functions = new FunctionDescriptor[] { "Add", "Increment" },
-                ProxiedProperties = new PropertyDescriptor[] { "Counter" }
-            });
-
-            rpc.RegisterHostFunction("squareIt", (int x) => "Hey, can you see me?");
-
-            rpc.RegisterHostFunction("testJsHost", () => {
-                var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc");
-                var rs = jsFunc("hello", "world");
-                rs.ContinueWith( t => Console.WriteLine("JS func call: {0}", t.Result));
-
-                var jsObj = rpc.GetProxyObject<IService>("jsObj");
-                var result = jsObj.Add(5, 6);
-                result.ContinueWith( t => Console.WriteLine("JS object method: {0}", t.Result));
-
-                var jsServiceFactory = rpc.CreateProxyClass<IService>("JsService");
-                var jsService = jsServiceFactory("12345");
-                jsService.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: ", t.Result));
-            });
-
-            rpc.RegisterHostClass("MyService", typeof(MySerive), new ClassDescriptor {
-                Ctor = new FunctionDescriptor {},
-                Static = new ObjectDescriptor {
-                    Functions = new FunctionDescriptor[] { "Mul" },
-                    ProxiedProperties = new PropertyDescriptor[] { "StaticCounter" }
-                },
-                Instance = new ObjectDescriptor {
-                    Functions = new FunctionDescriptor[] { "Add", "Increment" },
-                    ProxiedProperties = new PropertyDescriptor[] { "Counter" }
-                }
-            });
+            var replyChannel = new RPCSendAsyncChannel(SendMessage);
 
             while (!webSocket.CloseStatus.HasValue)
             {
@@ -136,7 +138,7 @@ namespace SuperRPC
                             var messageBuffer = readResult.Buffer.Slice(readResult.Buffer.Start, messageLength);
                             var message = ParseMessage(messageBuffer);
                             if (message != null) {
-                                channel.Received(message);
+                                MessageReceived?.Invoke(this, new MessageReceivedEventArgs(message, replyChannel, context));
                             }
                             pipe.Reader.AdvanceTo(messageBuffer.End);
                             messageLength = 0;

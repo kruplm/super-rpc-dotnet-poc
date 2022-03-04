@@ -1,3 +1,4 @@
+using System.Security;
 using System.Diagnostics;
 using System;
 using System.Linq.Expressions;
@@ -183,13 +184,13 @@ public class SuperRPC
         if (message.callType == FunctionReturnBehavior.Async) {
             SendAsyncIfPossible(new RPC_AsyncFnResultMessage {
                 success = success,
-                result = ProcessBeforeSerialization(result),
+                result = ProcessBeforeSerialization(result, replyChannel),
                 callId = message.callId
             }, replyChannel);
         } else if (message.callType == FunctionReturnBehavior.Sync) {
             SendSyncIfPossible(new RPC_SyncFnResultMessage {
                 success = success,
-                result = ProcessBeforeSerialization(result),
+                result = ProcessBeforeSerialization(result, replyChannel),
             }, replyChannel);
         }
 
@@ -331,13 +332,28 @@ public class SuperRPC
         return obj;
     }
 
-    private bool ProcessPropertyValuesBeforeSerialization(object obj, PropertyInfo[] properties, Dictionary<string, object?> propertyBag) {
+
+    private object?[] ProcessArgumentsAfterDeserialization(object?[] args, Type[] parameterTypes) {
+        if (args.Length != parameterTypes.Length) {
+            throw new ArgumentException($"Method argument number mismatch. Expected {parameterTypes.Length} and got {args.Length}.");
+        }
+
+        for (var i = 0; i < args.Length; i++) {
+            var arg = args[i];
+            var type = parameterTypes[i];
+            args[i] = ProcessAfterDeserialization(args[i], parameterTypes[i]);
+        }
+
+        return args;
+    }
+
+    private bool ProcessPropertyValuesBeforeSerialization(object obj, PropertyInfo[] properties, Dictionary<string, object?> propertyBag, RPCChannel replyChannel) {
         var needToConvert = false;
         foreach (var propInfo in properties) {
             if (!propInfo.CanRead || propInfo.GetIndexParameters().Length > 0) continue;
 
             var value = propInfo.GetValue(obj);
-            var newValue = ProcessBeforeSerialization(value);
+            var newValue = ProcessBeforeSerialization(value, replyChannel);
             propertyBag.Add(propInfo.Name, newValue);
 
             if (value is null ? newValue is not null : !value.Equals(newValue)) {
@@ -347,7 +363,7 @@ public class SuperRPC
         return needToConvert;
     }
 
-    private object? ProcessBeforeSerialization(object? obj) {
+    private object? ProcessBeforeSerialization(object? obj, RPCChannel replyChannel) {
         if (obj is null) return obj;
 
         var objType = obj.GetType();
@@ -356,20 +372,21 @@ public class SuperRPC
         if (obj is Task task) {
             string? objId = null;
             if (!hostObjectRegistry.ByObj.ContainsKey(obj)) {
+
                 void SendResult(bool success, object? result) {
                     SendAsyncIfPossible(new RPC_AsyncFnResultMessage {
                         success = success,
                         result = result,
                         callId = objId
-                    }); // TODO: replyChannel ??
+                    }, replyChannel);
                 }
 
                 if (objType.IsGenericType) {
                     replySent.Task.ContinueWith(_ => {
                         task.ContinueWith(t => SendResult(!t.IsFaulted, 
                             t.IsFaulted ? t.Exception?.ToString() :
-                            ProcessBeforeSerialization(((dynamic)t).Result)) 
-                        );
+                            ProcessBeforeSerialization(((dynamic)t).Result, replyChannel)
+                        ));
                     });
                 } else {
                     replySent.Task.ContinueWith(_ => {
@@ -388,7 +405,7 @@ public class SuperRPC
 
             if (descriptor.Instance?.ReadonlyProperties is not null) {
                 var propertyInfos = descriptor.Instance.ReadonlyProperties.Select(prop => objType.GetProperty(prop, PropBindFlags)).ToArray();
-                ProcessPropertyValuesBeforeSerialization(obj, propertyInfos, propertyBag);
+                ProcessPropertyValuesBeforeSerialization(obj, propertyInfos, propertyBag, replyChannel);
             }
             return new RPC_Object(objId, propertyBag, entry.id);
         }
@@ -402,7 +419,7 @@ public class SuperRPC
             var propertyInfos = objType.GetProperties(PropBindFlags);
             var propertyBag = new Dictionary<string, object?>();
 
-            if (ProcessPropertyValuesBeforeSerialization(obj, propertyInfos, propertyBag)) {
+            if (ProcessPropertyValuesBeforeSerialization(obj, propertyInfos, propertyBag, replyChannel)) {
                 var objId = RegisterLocalObj(obj);
                 return new RPC_Object(objId, propertyBag);
             }
@@ -411,25 +428,11 @@ public class SuperRPC
         return obj;
     }
 
-    private object?[] ProcessArgumentsAfterDeserialization(object?[] args, Type[] parameterTypes) {
-        if (args.Length != parameterTypes.Length) {
-            throw new ArgumentException($"Method argument number mismatch. Expected {parameterTypes.Length} and got {args.Length}.");
-        }
-
-        for (var i = 0; i < args.Length; i++) {
-            var arg = args[i];
-            var type = parameterTypes[i];
-            args[i] = ProcessAfterDeserialization(args[i], parameterTypes[i]);
-        }
-
-        return args;
-    }
-
     private object?[] ProcessArgumentsBeforeSerialization(object?[] args/* , Type[] parameterTypes */, FunctionDescriptor func, RPCChannel replyChannel) {
         for (var i = 0; i < args.Length; i++) {
             var arg = args[i];
             // var type = parameterTypes[i];
-            args[i] = ProcessBeforeSerialization(arg);
+            args[i] = ProcessBeforeSerialization(arg, replyChannel);
         }
         return args;
     }
@@ -631,6 +634,11 @@ public class SuperRPC
                 TypeAttributes.AutoLayout,
                 null, new[] { ifType });
 
+
+        var ci = typeof(SecurityTransparentAttribute).GetConstructor(Type.EmptyTypes);
+        var attrBuilder = new CustomAttributeBuilder(ci, new object[0]);
+        typeBuilder.SetCustomAttribute(attrBuilder);
+
         var objIdField = typeBuilder.DefineField("objId", typeof(string), FieldAttributes.Public | FieldAttributes.InitOnly);
         var proxyTargetsField = typeBuilder.DefineField("proxyTargets", typeof(object[]), FieldAttributes.Public | FieldAttributes.InitOnly);
 
@@ -647,7 +655,7 @@ public class SuperRPC
         ctorIL.Emit(OpCodes.Stfld, objIdField); // this.objId = arg1
 
         ctorIL.Emit(OpCodes.Ldarg_0);   // this
-        ctorIL.Emit(OpCodes.Ldarg_2);   // proxyTarget ref
+        ctorIL.Emit(OpCodes.Ldarg_2);   // proxyTargets ref
         ctorIL.Emit(OpCodes.Stfld, proxyTargetsField); // this.proxyTarget = arg2
         
         ctorIL.Emit(OpCodes.Ret);

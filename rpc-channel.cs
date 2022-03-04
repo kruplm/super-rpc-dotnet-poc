@@ -25,16 +25,19 @@ namespace SuperRPC
         event EventHandler<MessageReceivedEventArgs> MessageReceived;
     }
 
-    public record RPCAsyncAndReceiveChannel(Action<RPC_Message> sendAsync) : RPCChannelSendAsync, RPCChannelReceive {
-        public event EventHandler<MessageReceivedEventArgs> MessageReceived;
-
+    public record RPCSendAsyncChannel(Action<RPC_Message> sendAsync) : RPCChannelSendAsync {
         public void SendAsync(RPC_Message message) {
             sendAsync(message);
         }
+    }
+
+    public record RPCSendAsyncAndReceiveChannel(Action<RPC_Message> sendAsync) : RPCSendAsyncChannel(sendAsync), RPCChannelReceive {
+        public event EventHandler<MessageReceivedEventArgs> MessageReceived;
         
         public void Received(RPC_Message message, RPCChannel? replyChannel = null, object? context = null) {
             MessageReceived?.Invoke(this, new MessageReceivedEventArgs(message, replyChannel, context));
         }
     }
+
 }
 
