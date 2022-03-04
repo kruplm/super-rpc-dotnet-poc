@@ -20,7 +20,7 @@ record AsyncCallbackEntry(TaskCompletionSource<object?> complete, Type? type);
 
 public class SuperRPC
 {
-    public object? CurrentContext;
+    public object? CurrentContext { get; private set; }
 
     protected readonly Func<string> ObjectIDGenerator;
     protected RPCChannel Channel;
@@ -570,7 +570,8 @@ public class SuperRPC
         return type;
     }
 
-    public T GetProxyFunction<T> (string objId) where T: Delegate {
+    public T GetProxyFunction<T> (string objId, RPCChannel? channel = null) where T: Delegate {
+        channel ??= Channel;
         // get it from a registry
 
         if (!remoteFunctionDescriptors.TryGetValue(objId, out var descriptor)) {
@@ -581,20 +582,22 @@ public class SuperRPC
         var returnType = UnwrapTaskReturnType(method.ReturnType);
         var funcParamTypes = method.GetParameters().Select(pi => pi.ParameterType).ToArray();
         
-        var proxyFunc = CreateProxyFunctionWithType(returnType, objId, descriptor, "fn_call");
+        var proxyFunc = CreateProxyFunctionWithType(returnType, objId, descriptor, "fn_call", FunctionReturnBehavior.Async, channel);
         
         // put it in registry
         return (T)CreateDynamicWrapperMethod(objId + "_" + descriptor.Name, proxyFunc, funcParamTypes);
     }
 
-    public T GetProxyObject<T>(string objId) {
+    public T GetProxyObject<T>(string objId, RPCChannel? channel = null) {
         if (!remoteObjectDescriptors.TryGetValue(objId, out var descriptor)) {
             throw new ArgumentException($"No descriptor found for object ID {objId}.");
         }
-        return (T)proxyGenerator.CreateInterfaceProxyWithoutTarget(typeof(T), new ProxyObjectInterceptor(this, objId, descriptor, "method_call"));
+        return (T)proxyGenerator.CreateInterfaceProxyWithoutTarget(typeof(T), 
+            new ProxyObjectInterceptor(this, objId, descriptor, "method_call", channel ?? Channel)
+        );
     }
 
-    public record ProxyObjectInterceptor(SuperRPC rpc, string objId, ObjectDescriptor descriptor, string action) : IInterceptor
+    public record ProxyObjectInterceptor(SuperRPC rpc, string objId, ObjectDescriptor descriptor, string action, RPCChannel channel) : IInterceptor
     {
         private readonly Dictionary<string, Delegate> proxyFunctions = new Dictionary<string, Delegate>();
 
@@ -606,7 +609,11 @@ public class SuperRPC
                 if (funcDescriptor is null) {
                     throw new ArgumentException($"No function descriptor found for '{methodName}'; objID={objId}");
                 }
-                proxyDelegate = rpc.CreateProxyFunctionWithType(UnwrapTaskReturnType(invocation.Method.ReturnType), objId, funcDescriptor, action);
+                proxyDelegate = rpc.CreateProxyFunctionWithType(
+                    UnwrapTaskReturnType(invocation.Method.ReturnType),
+                    objId, funcDescriptor, action,
+                    FunctionReturnBehavior.Async, channel
+                );
                 proxyFunctions.Add(methodName, proxyDelegate);
             }
 
@@ -614,7 +621,8 @@ public class SuperRPC
         }
     }
 
-    public Func<string, T> CreateProxyClass<T>(string classId) {
+    public Func<string, T> CreateProxyClass<T>(string classId, RPCChannel? channel = null) {
+        channel ??= Channel;
         // get/put it in a registry
 
         if (!remoteClassDescriptors.TryGetValue(classId, out var descriptor)) {

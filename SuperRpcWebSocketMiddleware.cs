@@ -45,15 +45,15 @@ namespace SuperRPC
             rpc.RegisterHostFunction("squareIt", (int x) => "Hey, can you see me?");
 
             rpc.RegisterHostFunction("testJsHost", () => {
-                var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc");
+                var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc", (RPCChannel?)rpc.CurrentContext);
                 var rs = jsFunc("hello", "world");
                 rs.ContinueWith( t => Console.WriteLine("JS func call: {0}", t.Result));
 
-                var jsObj = rpc.GetProxyObject<IService>("jsObj");
+                var jsObj = rpc.GetProxyObject<IService>("jsObj", (RPCChannel?)rpc.CurrentContext);
                 var result = jsObj.Add(5, 6);
                 result.ContinueWith( t => Console.WriteLine("JS object method: {0}", t.Result));
 
-                var jsServiceFactory = rpc.CreateProxyClass<IService>("JsService");
+                var jsServiceFactory = rpc.CreateProxyClass<IService>("JsService", (RPCChannel?)rpc.CurrentContext);
                 var jsService = jsServiceFactory("12345");
                 // jsService.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: ", t.Result));
             });
@@ -138,7 +138,7 @@ namespace SuperRPC
                             var messageBuffer = readResult.Buffer.Slice(readResult.Buffer.Start, messageLength);
                             var message = ParseMessage(messageBuffer);
                             if (message != null) {
-                                MessageReceived?.Invoke(this, new MessageReceivedEventArgs(message, replyChannel, context));
+                                MessageReceived?.Invoke(this, new MessageReceivedEventArgs(message, replyChannel, replyChannel));
                             }
                             pipe.Reader.AdvanceTo(messageBuffer.End);
                             messageLength = 0;
