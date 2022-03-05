@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Security;
 using System.Diagnostics;
 using System;
@@ -20,14 +21,18 @@ record AsyncCallbackEntry(TaskCompletionSource<object?> complete, Type? type);
 
 public class SuperRPC
 {
-    public object? CurrentContext { get; private set; }
+    private AsyncLocal<object?> _currentContextAsyncLocal = new AsyncLocal<object?>();
+    public object? CurrentContext {
+        get => _currentContextAsyncLocal.Value;
+        set => _currentContextAsyncLocal.Value = value;
+    }
 
     protected readonly Func<string> ObjectIDGenerator;
-    protected RPCChannel Channel;
+    protected RPCChannel? Channel;
 
-    private ObjectDescriptors remoteObjectDescriptors;
-    private FunctionDescriptors remoteFunctionDescriptors;
-    private ClassDescriptors remoteClassDescriptors;
+    private ObjectDescriptors? remoteObjectDescriptors;
+    private FunctionDescriptors? remoteFunctionDescriptors;
+    private ClassDescriptors? remoteClassDescriptors;
     private TaskCompletionSource<bool>? remoteDescriptorsReceived = null;
 
     // private readonly proxyObjectRegistry = new ProxyObjectRegistry();
@@ -57,8 +62,7 @@ public class SuperRPC
     }
 
     public void RegisterHostFunction(string objId, Delegate target, FunctionDescriptor? descriptor = null) {
-        descriptor ??= new FunctionDescriptor();
-        hostFunctionRegistry.Add(objId, target, descriptor);
+        hostFunctionRegistry.Add(objId, target, descriptor ?? new FunctionDescriptor());
     }
 
     public void RegisterHostClass(string classId, Type clazz, ClassDescriptor descriptor) {
@@ -72,7 +76,7 @@ public class SuperRPC
 
     private TaskCompletionSource replySent;
 
-    protected void MessageReceived(object sender, MessageReceivedEventArgs eventArgs) {
+    protected void MessageReceived(object? sender, MessageReceivedEventArgs eventArgs) {
         var message = eventArgs.message;
         var replyChannel = eventArgs.replyChannel ?? Channel;
         CurrentContext = eventArgs.context;
@@ -285,7 +289,6 @@ public class SuperRPC
         } else if (channel is RPCChannelSendSync syncChannel) {
             return syncChannel.SendSync(message);
         }
-        
         return null;
     }
 
@@ -523,8 +526,8 @@ public class SuperRPC
         string objId,
         FunctionDescriptor descriptor,
         string action,
-        FunctionReturnBehavior defaultCallType = FunctionReturnBehavior.Async,
-        RPCChannel? replyChannel = null)
+        RPCChannel? replyChannel = null,
+        FunctionReturnBehavior defaultCallType = FunctionReturnBehavior.Async)
     {
         return (Delegate)GetType()
             .GetMethod("CreateProxyFunction", BindingFlags.NonPublic | BindingFlags.Instance)
@@ -582,7 +585,7 @@ public class SuperRPC
         var returnType = UnwrapTaskReturnType(method.ReturnType);
         var funcParamTypes = method.GetParameters().Select(pi => pi.ParameterType).ToArray();
         
-        var proxyFunc = CreateProxyFunctionWithType(returnType, objId, descriptor, "fn_call", FunctionReturnBehavior.Async, channel);
+        var proxyFunc = CreateProxyFunctionWithType(returnType, objId, descriptor, "fn_call", channel);
         
         // put it in registry
         return (T)CreateDynamicWrapperMethod(objId + "_" + descriptor.Name, proxyFunc, funcParamTypes);
@@ -611,8 +614,7 @@ public class SuperRPC
                 }
                 proxyDelegate = rpc.CreateProxyFunctionWithType(
                     UnwrapTaskReturnType(invocation.Method.ReturnType),
-                    objId, funcDescriptor, action,
-                    FunctionReturnBehavior.Async, channel
+                    objId, funcDescriptor, action, channel
                 );
                 proxyFunctions.Add(methodName, proxyDelegate);
             }
@@ -693,7 +695,7 @@ public class SuperRPC
                 paramInfos.Select(pi => pi.GetOptionalCustomModifiers()).ToArray()
             );
 
-            var proxyFunction = CreateProxyFunctionWithType(methodInfoToImpl.ReturnType, null, funcDescriptor, "method_call", FunctionReturnBehavior.Async);
+            var proxyFunction = CreateProxyFunctionWithType(methodInfoToImpl.ReturnType, null, funcDescriptor, "method_call", channel);
             proxyTargets[midx] = proxyFunction.Target;
 
             var il = methodBuilder.GetILGenerator();

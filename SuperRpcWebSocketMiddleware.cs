@@ -29,6 +29,10 @@ namespace SuperRPC
         private SuperRPC rpc;
         public event EventHandler<MessageReceivedEventArgs> MessageReceived;
 
+        public interface IService {
+            Task<int> Add(int a, int b);
+        }
+
         public SuperRpcWebSocketMiddleware(RequestDelegate next, SuperRPC rpc)
         {
             this.next = next;
@@ -55,7 +59,7 @@ namespace SuperRPC
 
                 var jsServiceFactory = rpc.CreateProxyClass<IService>("JsService", (RPCChannel?)rpc.CurrentContext);
                 var jsService = jsServiceFactory("12345");
-                // jsService.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: ", t.Result));
+                jsService.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: ", t.Result));
             });
 
             rpc.RegisterHostClass("MyService", typeof(MySerive), new ClassDescriptor {
@@ -89,10 +93,6 @@ namespace SuperRPC
                 return;
             }
             await next(context);
-        }
-
-        public interface IService {
-            Task<int> Add(int a, int b);
         }
 
         private async Task HandleConnection(HttpContext context, WebSocket webSocket)
