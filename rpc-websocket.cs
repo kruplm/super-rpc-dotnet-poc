@@ -17,6 +17,7 @@ namespace SuperRPC;
 public record SuperRPCWebSocket(WebSocket webSocket, object? context)
 {
     public RPCReceiveChannel ReceiveChannel;
+    public IRPCSendAsyncChannel SendChannel;
 
     // This is for the websocket client case. You need to call StartReceivingAsync()
     // after connecting the SuperRPC instance to SuperRPCWebSocket.ReceiveChannel
@@ -24,7 +25,7 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
         var rpcWebSocket = new SuperRPCWebSocket(webSocket, context);
         var sendAndReceiveChannel = new RPCSendAsyncAndReceiveChannel(rpcWebSocket.SendMessage);
 
-        rpcWebSocket.sendChannel = sendAndReceiveChannel;
+        rpcWebSocket.SendChannel = sendAndReceiveChannel;
         rpcWebSocket.ReceiveChannel = sendAndReceiveChannel;
 
         return rpcWebSocket;
@@ -35,10 +36,9 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
     public static Task HandleWebsocketConnectionAsync(WebSocket webSocket, RPCReceiveChannel receiveChannel, object? context = null) {
         var rpcWebSocket = new SuperRPCWebSocket(webSocket, context);
         rpcWebSocket.ReceiveChannel = receiveChannel;
+        rpcWebSocket.SendChannel = new RPCSendAsyncChannel(rpcWebSocket.SendMessage);
         return rpcWebSocket.StartReceivingAsync();
     }
-
-    private IRPCSendAsyncChannel? sendChannel;
 
     private const int ReceiveBufferSize = 4 * 1024;
     private JsonSerializer jsonSerializer = new JsonSerializer();
@@ -62,8 +62,6 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
         var pipe = new Pipe(new PipeOptions(pauseWriterThreshold: 0));
         var messageLength = 0;
 
-        var replyChannel = sendChannel ?? new RPCSendAsyncChannel(SendMessage);
-
         while (!webSocket.CloseStatus.HasValue)
         {
             var mem = pipe.Writer.GetMemory(ReceiveBufferSize);
@@ -85,7 +83,7 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
                         var messageBuffer = readResult.Buffer.Slice(readResult.Buffer.Start, messageLength);
                         var message = ParseMessage(messageBuffer);
                         if (message != null) {
-                            ReceiveChannel.Received(message, replyChannel, context ?? replyChannel);
+                            ReceiveChannel.Received(message, SendChannel, context ?? SendChannel);
                         }
                         pipe.Reader.AdvanceTo(messageBuffer.End);
                         messageLength = 0;

@@ -41,7 +41,7 @@ ws.addEventListener('open', async () => {
     });
 
     const jsServiceInstance = new JsService();
-    rpc.registerHostFunction('getJsService', () => jsServiceInstance);
+    rpc.registerHostFunction('getJsService', () => jsServiceInstance, {});
 
     rpc.sendRemoteDescriptors();
 

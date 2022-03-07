@@ -12,8 +12,8 @@ public class ObjectIdDictionary<TKeyId, TKeyObj, TValue>
 
     public void Add(TKeyId id, TKeyObj obj, TValue value) {
         var entry = new Entry(id, obj, value);
-        ById.Add(id, entry);
-        ByObj.Add(obj, entry);
+        ById.TryAdd(id, entry);
+        ByObj.TryAdd(obj, entry);
     }
 
     public void RemoveById(TKeyId id) {
@@ -22,6 +22,4 @@ public class ObjectIdDictionary<TKeyId, TKeyObj, TValue>
             ById.Remove(id);
         }
     }
-
-
 }

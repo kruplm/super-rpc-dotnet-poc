@@ -40,25 +40,28 @@ public class SuperRpcWebSocketMiddleware
         rpc.RegisterHostFunction("squareIt", (int x) => "Hey, can you see me?");
 
         rpc.RegisterHostFunction("testJsHost", () => {
-            var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc", (IRPCChannel?)rpc.CurrentContext);
-            var rs = jsFunc("hello", "world");
-            rs.ContinueWith( t => Console.WriteLine("JS func call: {0}", t.Result));
+            // var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc", (IRPCChannel?)rpc.CurrentContext);
+            // var rs = jsFunc("hello", "world");
+            // rs.ContinueWith( t => Console.WriteLine("JS func call: {0}", t.Result));
 
-            var jsObj = rpc.GetProxyObject<IService>("jsObj", (IRPCChannel?)rpc.CurrentContext);
-            var result = jsObj.Add(5, 6);
-            result.ContinueWith( t => Console.WriteLine("JS object method: {0}", t.Result));
+            // var jsObj = rpc.GetProxyObject<IService>("jsObj", (IRPCChannel?)rpc.CurrentContext);
+            // var result = jsObj.Add(5, 6);
+            // result.ContinueWith( t => Console.WriteLine("JS object method: {0}", t.Result));
 
-            // var getJsService = rpc.GetProxyFunction<Func<Task<IService>>>("getJsService", (RPCChannel?)rpc.CurrentContext);
-            // getJsService().ContinueWith(jsService => {
-            //     jsService.Result.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: ", t.Result));
-            // });
 
-            // var jsServiceFactory = rpc.CreateProxyClass<IService>("JsService", (RPCChannel?)rpc.CurrentContext);
+            rpc.RegisterProxyClass<IService>("JsService");
+            
+            var getJsService = rpc.GetProxyFunction<Func<Task<IService>>>("getJsService", (IRPCChannel?)rpc.CurrentContext);
+            getJsService().ContinueWith(jsService => {
+                jsService.Result.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: ", t.Result));
+            });
+
+            // var jsServiceFactory = rpc.CreateProxyClass<IService>("JsService", (IRPCChannel?)rpc.CurrentContext);
             // var jsService = jsServiceFactory("JsService");
             // jsService.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: ", t.Result));
         });
 
-        rpc.RegisterHostClass("MyService", typeof(MySerive), new ClassDescriptor {
+        rpc.RegisterHostClass<MySerive>("MyService", new ClassDescriptor {
             Ctor = new FunctionDescriptor {},
             Static = new ObjectDescriptor {
                 Functions = new FunctionDescriptor[] { "Mul" },
