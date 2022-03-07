@@ -28,7 +28,7 @@ public class SuperRPC
     }
 
     protected readonly Func<string> ObjectIDGenerator;
-    protected RPCChannel? Channel;
+    protected IRPCChannel? Channel;
 
     private ObjectDescriptors? remoteObjectDescriptors;
     private FunctionDescriptors? remoteFunctionDescriptors;
@@ -50,9 +50,9 @@ public class SuperRPC
         ObjectIDGenerator = objectIdGenerator;
     }
 
-    public void Connect(RPCChannel channel) {
+    public void Connect(IRPCChannel channel) {
         Channel = channel;
-        if (channel is RPCChannelReceive receiveChannel) {
+        if (channel is IRPCReceiveChannel receiveChannel) {
             receiveChannel.MessageReceived += MessageReceived;
         }
     }
@@ -125,7 +125,7 @@ public class SuperRPC
         return entry;
     }
 
-    protected void CallTargetFunction(RPC_AnyCallTypeFnCallMessage message, RPCChannel replyChannel) {
+    protected void CallTargetFunction(RPC_AnyCallTypeFnCallMessage message, IRPCChannel replyChannel) {
         replySent = new TaskCompletionSource();
 
         object? result = null;
@@ -207,7 +207,7 @@ public class SuperRPC
     * If sync is not available, it uses async messaging and returns a Task.
     */
     public ValueTask<bool> RequestRemoteDescriptors() {
-        if (Channel is RPCChannelSendSync syncChannel) {
+        if (Channel is IRPCSendSyncChannel syncChannel) {
             var response = syncChannel.SendSync(new RPC_GetDescriptorsMessage());
             if (response is RPC_DescriptorsResultMessage descriptors) {
                 SetRemoteDescriptors(descriptors);
@@ -215,7 +215,7 @@ public class SuperRPC
             }
         }
 
-        if (Channel is RPCChannelSendAsync asyncChannel) {
+        if (Channel is IRPCSendAsyncChannel asyncChannel) {
             remoteDescriptorsReceived = new TaskCompletionSource<bool>();
             asyncChannel.SendAsync(new RPC_GetDescriptorsMessage());
             return new ValueTask<bool>(remoteDescriptorsReceived.Task);
@@ -241,7 +241,7 @@ public class SuperRPC
     * If possible, the message is sent synchronously.
     * This is a "push" style message, for "pull" see [[requestRemoteDescriptors]].
     */
-    public void SendRemoteDescriptors(RPCChannel? replyChannel) {
+    public void SendRemoteDescriptors(IRPCChannel? replyChannel) {
         replyChannel ??= Channel;
         SendSyncIfPossible(new RPC_DescriptorsResultMessage {
             objects = GetLocalObjectDescriptors(),
@@ -269,24 +269,24 @@ public class SuperRPC
         return descriptors;
     }
 
-    private object? SendSyncIfPossible(RPC_Message message, RPCChannel? channel = null) {
+    private object? SendSyncIfPossible(RPC_Message message, IRPCChannel? channel = null) {
         channel ??= Channel;
 
-        if (channel is RPCChannelSendSync syncChannel) {
+        if (channel is IRPCSendSyncChannel syncChannel) {
             return syncChannel.SendSync(message);
-        } else if (channel is RPCChannelSendAsync asyncChannel) {
+        } else if (channel is IRPCSendAsyncChannel asyncChannel) {
             asyncChannel.SendAsync(message);
         }
         return null;
     }
 
     
-    private object? SendAsyncIfPossible(RPC_Message message, RPCChannel? channel = null) {
+    private object? SendAsyncIfPossible(RPC_Message message, IRPCChannel? channel = null) {
         channel ??= Channel;
 
-        if (channel is RPCChannelSendAsync asyncChannel) {
+        if (channel is IRPCSendAsyncChannel asyncChannel) {
             asyncChannel.SendAsync(message);
-        } else if (channel is RPCChannelSendSync syncChannel) {
+        } else if (channel is IRPCSendSyncChannel syncChannel) {
             return syncChannel.SendSync(message);
         }
         return null;
@@ -350,7 +350,7 @@ public class SuperRPC
         return args;
     }
 
-    private bool ProcessPropertyValuesBeforeSerialization(object obj, PropertyInfo[] properties, Dictionary<string, object?> propertyBag, RPCChannel replyChannel) {
+    private bool ProcessPropertyValuesBeforeSerialization(object obj, PropertyInfo[] properties, Dictionary<string, object?> propertyBag, IRPCChannel replyChannel) {
         var needToConvert = false;
         foreach (var propInfo in properties) {
             if (!propInfo.CanRead || propInfo.GetIndexParameters().Length > 0) continue;
@@ -366,7 +366,7 @@ public class SuperRPC
         return needToConvert;
     }
 
-    private object? ProcessBeforeSerialization(object? obj, RPCChannel replyChannel) {
+    private object? ProcessBeforeSerialization(object? obj, IRPCChannel replyChannel) {
         if (obj is null) return obj;
 
         var objType = obj.GetType();
@@ -431,7 +431,7 @@ public class SuperRPC
         return obj;
     }
 
-    private object?[] ProcessArgumentsBeforeSerialization(object?[] args/* , Type[] parameterTypes */, FunctionDescriptor func, RPCChannel replyChannel) {
+    private object?[] ProcessArgumentsBeforeSerialization(object?[] args/* , Type[] parameterTypes */, FunctionDescriptor func, IRPCChannel replyChannel) {
         for (var i = 0; i < args.Length; i++) {
             var arg = args[i];
             // var type = parameterTypes[i];
@@ -440,7 +440,7 @@ public class SuperRPC
         return args;
     }
 
-    private Delegate CreateVoidProxyFunction<TReturn>(string? objId, FunctionDescriptor func, string action, RPCChannel replyChannel) {
+    private Delegate CreateVoidProxyFunction<TReturn>(string? objId, FunctionDescriptor func, string action, IRPCChannel replyChannel) {
 
         TReturn? ProxyFunction(object?[] args) {
             SendAsyncIfPossible(new RPC_AnyCallTypeFnCallMessage {
@@ -456,7 +456,7 @@ public class SuperRPC
         return ProxyFunction;
     }
 
-    private Delegate CreateSyncProxyFunction<TReturn>(string? objId, FunctionDescriptor func, string action, RPCChannel replyChannel) {
+    private Delegate CreateSyncProxyFunction<TReturn>(string? objId, FunctionDescriptor func, string action, IRPCChannel replyChannel) {
         
         TReturn? ProxyFunction(object?[] args) {
             var response = (RPC_SyncFnResultMessage?)SendSyncIfPossible(new RPC_AnyCallTypeFnCallMessage {
@@ -478,7 +478,7 @@ public class SuperRPC
         return ProxyFunction;
     }
 
-    private Delegate CreateAsyncProxyFunction<TReturn>(string objId, FunctionDescriptor func, string action, RPCChannel replyChannel) {
+    private Delegate CreateAsyncProxyFunction<TReturn>(string objId, FunctionDescriptor func, string action, IRPCChannel replyChannel) {
         
         Task<TReturn?> ProxyFunction(object?[] args) {
             callId++;
@@ -506,13 +506,13 @@ public class SuperRPC
         FunctionDescriptor descriptor,
         string action,
         FunctionReturnBehavior defaultCallType = FunctionReturnBehavior.Async,
-        RPCChannel? replyChannel = null)
+        IRPCChannel? replyChannel = null)
     {
         replyChannel ??= Channel;
         var callType = descriptor?.Returns ?? defaultCallType;
 
-        if (callType == FunctionReturnBehavior.Async && replyChannel is not RPCChannelSendAsync) callType = FunctionReturnBehavior.Sync;
-        if (callType == FunctionReturnBehavior.Sync && replyChannel is not RPCChannelSendSync) callType = FunctionReturnBehavior.Async;
+        if (callType == FunctionReturnBehavior.Async && replyChannel is not IRPCSendAsyncChannel) callType = FunctionReturnBehavior.Sync;
+        if (callType == FunctionReturnBehavior.Sync && replyChannel is not IRPCSendSyncChannel) callType = FunctionReturnBehavior.Async;
 
         return callType switch {
             FunctionReturnBehavior.Void => CreateVoidProxyFunction<TReturn>(objId, descriptor, action, replyChannel),
@@ -526,7 +526,7 @@ public class SuperRPC
         string objId,
         FunctionDescriptor descriptor,
         string action,
-        RPCChannel? replyChannel = null,
+        IRPCChannel? replyChannel = null,
         FunctionReturnBehavior defaultCallType = FunctionReturnBehavior.Async)
     {
         return (Delegate)GetType()
@@ -573,7 +573,7 @@ public class SuperRPC
         return type;
     }
 
-    public T GetProxyFunction<T> (string objId, RPCChannel? channel = null) where T: Delegate {
+    public T GetProxyFunction<T> (string objId, IRPCChannel? channel = null) where T: Delegate {
         channel ??= Channel;
         // get it from a registry
 
@@ -591,7 +591,7 @@ public class SuperRPC
         return (T)CreateDynamicWrapperMethod(objId + "_" + descriptor.Name, proxyFunc, funcParamTypes);
     }
 
-    public T GetProxyObject<T>(string objId, RPCChannel? channel = null) {
+    public T GetProxyObject<T>(string objId, IRPCChannel? channel = null) {
         if (!remoteObjectDescriptors.TryGetValue(objId, out var descriptor)) {
             throw new ArgumentException($"No descriptor found for object ID {objId}.");
         }
@@ -600,7 +600,7 @@ public class SuperRPC
         );
     }
 
-    public record ProxyObjectInterceptor(SuperRPC rpc, string objId, ObjectDescriptor descriptor, string action, RPCChannel channel) : IInterceptor
+    public record ProxyObjectInterceptor(SuperRPC rpc, string objId, ObjectDescriptor descriptor, string action, IRPCChannel channel) : IInterceptor
     {
         private readonly Dictionary<string, Delegate> proxyFunctions = new Dictionary<string, Delegate>();
 
@@ -623,7 +623,7 @@ public class SuperRPC
         }
     }
 
-    public Func<string, T> CreateProxyClass<T>(string classId, RPCChannel? channel = null) {
+    public Func<string, T> CreateProxyClass<T>(string classId, IRPCChannel? channel = null) {
         channel ??= Channel;
         // get/put it in a registry
 
@@ -696,18 +696,22 @@ public class SuperRPC
             );
 
             var proxyFunction = CreateProxyFunctionWithType(methodInfoToImpl.ReturnType, null, funcDescriptor, "method_call", channel);
-            proxyTargets[midx] = proxyFunction.Target;
+            proxyTargets[midx] = proxyFunction;
 
             var il = methodBuilder.GetILGenerator();
 
             il.Emit(OpCodes.Ldarg_0);                   // "this" (ref of this generated class)
             il.Emit(OpCodes.Ldfld, proxyTargetsField);  // "this" (ref of object[] containing proxy function targets)
             il.Emit(OpCodes.Ldc_I4, midx);
-            il.Emit(OpCodes.Ldelem_Ref);                // proxyFunction.Target is on the stack now
+            il.Emit(OpCodes.Ldelem_Ref);                // proxyFunction [Delegate] is on the stack now
 
-
+            il.Emit(OpCodes.Ldc_I4_1);
+            il.Emit(OpCodes.Newarr, typeof(object));    //arr2 = new object[1]
+            il.Emit(OpCodes.Dup);
+            il.Emit(OpCodes.Ldc_I4_0);
+            
             il.Emit(OpCodes.Ldc_I4, paramTypes.Length);
-            il.Emit(OpCodes.Newarr, typeof(object));    //arr = new object[paramTypes.Length]
+            il.Emit(OpCodes.Newarr, typeof(object));    //arr1 = new object[paramTypes.Length]
 
             for (var i = 0; i < paramTypes.Length; i++) {
                 il.Emit(OpCodes.Dup);               // arr ref
@@ -716,10 +720,12 @@ public class SuperRPC
                 if (paramTypes[i].IsValueType) {
                     il.Emit(OpCodes.Box, paramTypes[i]);
                 }
-                il.Emit(OpCodes.Stelem_Ref);        // arr[idx] = arg
+                il.Emit(OpCodes.Stelem_Ref);        // arr1[idx] = arg
             }
 
-            il.Emit(OpCodes.Call, proxyFunction.Method);
+            il.Emit(OpCodes.Stelem_Ref);    // arr2[0] = arr1
+
+            il.Emit(OpCodes.Callvirt, typeof(Delegate).GetMethod("DynamicInvoke"));
             il.Emit(OpCodes.Ret);
         }
 

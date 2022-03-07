@@ -40,6 +40,9 @@ ws.addEventListener('open', async () => {
         }
     });
 
+    const jsServiceInstance = new JsService();
+    rpc.registerHostFunction('getJsService', () => jsServiceInstance);
+
     rpc.sendRemoteDescriptors();
 
     service = rpc.getProxyObject('service');
