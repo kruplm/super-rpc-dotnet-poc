@@ -79,7 +79,7 @@ public class SuperRpcWebSocketMiddleware
             {
                 using (WebSocket webSocket = await context.WebSockets.AcceptWebSocketAsync())
                 {
-                    await SuperRPCWebSocket.HandleWebsocketClientConnection(webSocket, receiveChannel);
+                    await SuperRPCWebSocket.HandleWebsocketConnectionAsync(webSocket, receiveChannel);
                 }
             }
             else

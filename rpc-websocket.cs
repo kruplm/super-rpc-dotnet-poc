@@ -16,27 +16,27 @@ namespace SuperRPC;
 
 public record SuperRPCWebSocket(WebSocket webSocket, object? context)
 {
-    public static void CreateTwoWayChannel(WebSocket webSocket,
-        out Task socketClosed, out RPCSendAsyncAndReceiveChannel channel,
-        object? context = null)
-    {
+    public RPCReceiveChannel ReceiveChannel;
+
+    // This is for the websocket client case. You need to call StartReceivingAsync()
+    // after connecting the SuperRPC instance to SuperRPCWebSocket.ReceiveChannel
+    public static SuperRPCWebSocket CreateHandler(WebSocket webSocket, object? context = null) {
         var rpcWebSocket = new SuperRPCWebSocket(webSocket, context);
         var sendAndReceiveChannel = new RPCSendAsyncAndReceiveChannel(rpcWebSocket.SendMessage);
 
         rpcWebSocket.sendChannel = sendAndReceiveChannel;
+        rpcWebSocket.ReceiveChannel = sendAndReceiveChannel;
 
-        socketClosed = rpcWebSocket.socketClosedSource.Task;
-        channel = sendAndReceiveChannel;
-
-        rpcWebSocket.HandleWebsocket(sendAndReceiveChannel);
+        return rpcWebSocket;
     }
 
-    public static Task HandleWebsocketClientConnection(WebSocket webSocket, RPCReceiveChannel receiveChannel, object? context = null) {
+    // This is useful when handling a server-side WebSocket connection.
+    // The replyChannel will be passed to the message event automatically.
+    public static Task HandleWebsocketConnectionAsync(WebSocket webSocket, RPCReceiveChannel receiveChannel, object? context = null) {
         var rpcWebSocket = new SuperRPCWebSocket(webSocket, context);
-        return rpcWebSocket.HandleWebsocket(receiveChannel);
+        rpcWebSocket.ReceiveChannel = receiveChannel;
+        return rpcWebSocket.StartReceivingAsync();
     }
-
-    private TaskCompletionSource socketClosedSource = new TaskCompletionSource();
 
     private IRPCSendAsyncChannel? sendChannel;
 
@@ -55,7 +55,8 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
             Debug.WriteLine("Error during SendMessage " + e.ToString());
         }
     }
-    private async Task HandleWebsocket(RPCReceiveChannel receiveChannel) {
+
+    public async Task StartReceivingAsync() {
         Debug.WriteLine("WebSocket connected");
 
         var pipe = new Pipe(new PipeOptions(pauseWriterThreshold: 0));
@@ -84,7 +85,7 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
                         var messageBuffer = readResult.Buffer.Slice(readResult.Buffer.Start, messageLength);
                         var message = ParseMessage(messageBuffer);
                         if (message != null) {
-                            receiveChannel.Received(message, replyChannel, context ?? replyChannel);
+                            ReceiveChannel.Received(message, replyChannel, context ?? replyChannel);
                         }
                         pipe.Reader.AdvanceTo(messageBuffer.End);
                         messageLength = 0;
@@ -97,8 +98,6 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
         }
 
         Debug.WriteLine($"WebSocket closed with status {webSocket.CloseStatus} {webSocket.CloseStatusDescription}");
-
-        socketClosedSource.SetResult();
     }
 
     
