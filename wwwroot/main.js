@@ -1,6 +1,6 @@
 const { SuperRPC } = superrpc;
 
-let rpc, service, squareIt, MyService, testJsHost;
+let rpc, service, squareIt, MyService, testJsHost, testDTO;
 
 const ws = new WebSocket('ws://localhost:5050/super-rpc');
 ws.addEventListener('open', async () => {
@@ -49,6 +49,7 @@ ws.addEventListener('open', async () => {
     squareIt = rpc.getProxyFunction('squareIt');
     MyService = rpc.getProxyClass('MyService');
     testJsHost = rpc.getProxyFunction('testJsHost');
+    testDTO = rpc.getProxyFunction('testDTO');
 });
 
 

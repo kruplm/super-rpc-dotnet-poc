@@ -1,5 +1,5 @@
 using System;
-
+using System.Diagnostics;
 using System.Net;
 using System.Net.WebSockets;
 using System.Threading;
@@ -22,10 +22,16 @@ public class SuperRpcWebSocketMiddleware
         Task<int> Add(int a, int b);
     }
 
+    public class CustomDTO {
+        public string Name { get; set; }
+    }
+
     public SuperRpcWebSocketMiddleware(RequestDelegate next, SuperRPC rpc)
     {
         this.next = next;
         this.rpc = rpc;
+
+        SuperRPCWebSocket.RegisterCustomDeserializer(rpc);
 
         receiveChannel = new RPCReceiveChannel();
         rpc.Connect(receiveChannel);
@@ -38,6 +44,8 @@ public class SuperRpcWebSocketMiddleware
         });
 
         rpc.RegisterHostFunction("squareIt", (int x) => "Hey, can you see me?");
+        
+        rpc.RegisterHostFunction("testDTO", (CustomDTO x) => Debug.WriteLine($"Custom DTO name: {x.Name}"));
 
         rpc.RegisterHostFunction("testJsHost", () => {
             // var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc", (IRPCChannel?)rpc.CurrentContext);

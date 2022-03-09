@@ -40,6 +40,10 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
         return rpcWebSocket.StartReceivingAsync();
     }
 
+    public static void RegisterCustomDeserializer(SuperRPC rpc) {
+        rpc.RegisterDeserializer(typeof(object), (object obj, Type targetType) => (obj as JObject)?.ToObject(targetType));
+    }
+
     private const int ReceiveBufferSize = 4 * 1024;
     private JsonSerializer jsonSerializer = new JsonSerializer();
     private ArrayBufferWriter<byte> responseBuffer = new ArrayBufferWriter<byte>();
