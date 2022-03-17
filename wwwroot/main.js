@@ -36,7 +36,7 @@ ws.addEventListener('open', async () => {
     rpc.registerHostClass('JsService', JsService, {
         ctor: {},
         instance: {
-            functions:['Add']
+            functions:[ { name: 'Add', returns: 'async' }]
         }
     });
 
