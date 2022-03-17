@@ -321,6 +321,12 @@ public class SuperRPC
         return objId;
     }
 
+    private Dictionary<Type, Func<object, Type, object>> deserializers = new Dictionary<Type, Func<object, Type, object>>();
+
+    public void RegisterDeserializer(Type type, Func<object, Type, object> deserializer) {
+        deserializers.Add(type, deserializer);
+    }
+
     private object? ProcessAfterDeserialization(object? obj, IRPCChannel replyChannel, Type? type = null) {
         if (obj is null) {
             if (type?.IsValueType == true) {
@@ -328,7 +334,7 @@ public class SuperRPC
             }
         } else {
             if (type is not null) {
-                var argType = obj.GetType();
+                var objType = obj.GetType();
 
                 // special cases for _rpc_type=object/function
                 if (proxyClassRegistry.ByObj.TryGetValue(type, out var proxyClassEntry)) {
@@ -340,10 +346,17 @@ public class SuperRPC
                     string objId = ((dynamic)obj)["objId"].ToString();
                     obj = factory(objId);
 
-                    argType = obj.GetType();
+                    objType = obj.GetType();
                 }
 
-                if (!argType.IsAssignableTo(type)) {
+                // custom deserializers
+                if (deserializers.TryGetValue(type, out var deserializer)) {
+                    obj = deserializer(obj, type);
+                } else if (deserializers.TryGetValue(typeof(object), out deserializer)) {
+                    obj = deserializer(obj, type);
+                }
+
+                if (!objType.IsAssignableTo(type)) {
                     obj = Convert.ChangeType(obj, type);
                 }
             }
