@@ -14,6 +14,5 @@
     <PackageReference Include="System.Text.Json" Version="5.0.2" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
     <PackageReference Include="Nerdbank.Streams" Version="2.8.57" />
-    <PackageReference Include="Castle.Core" Version="4.4.1" />
   </ItemGroup>
 </Project>

@@ -13,7 +13,6 @@ using ClassDescriptors = System.Collections.Generic.Dictionary<string, SuperRPC.
 using System.Reflection;
 using System.Linq;
 using System.Threading.Tasks;
-using Castle.DynamicProxy;
 
 namespace SuperRPC;
 
@@ -41,8 +40,6 @@ public class SuperRPC
     private readonly ObjectIdDictionary<string, object, ObjectDescriptor> hostObjectRegistry = new ObjectIdDictionary<string, object, ObjectDescriptor>();
     private readonly ObjectIdDictionary<string, Delegate, FunctionDescriptor> hostFunctionRegistry = new ObjectIdDictionary<string, Delegate, FunctionDescriptor>();
     private readonly ObjectIdDictionary<string, Type, ClassDescriptor> hostClassRegistry = new ObjectIdDictionary<string, Type, ClassDescriptor>();
-
-    private readonly ProxyGenerator proxyGenerator = new ProxyGenerator();
 
     private int callId = 0;
     private readonly Dictionary<string, AsyncCallbackEntry> asyncCallbacks = new Dictionary<string, AsyncCallbackEntry>();
@@ -559,7 +556,7 @@ public class SuperRPC
 
     private Delegate CreateProxyFunctionWithType(
         Type returnType,
-        string objId,
+        string? objId,
         FunctionDescriptor descriptor,
         string action,
         IRPCChannel? replyChannel = null,
@@ -618,60 +615,28 @@ public class SuperRPC
         channel ??= Channel;
         // get it from a registry
 
-        if (!remoteFunctionDescriptors.TryGetValue(objId, out var descriptor)) {
+        if (remoteFunctionDescriptors?.TryGetValue(objId, out var descriptor) is not true) {
             throw new ArgumentException($"No object descriptor found with ID '{objId}'.");
         }
 
         var method = typeof(T).GetMethod("Invoke");
-        var returnType = UnwrapTaskReturnType(method.ReturnType);
+        if (method is null) {
+            throw new ArgumentException($"Given generic type is not a Delegate ({typeof(T).FullName})");
+        }
+
         var funcParamTypes = method.GetParameters().Select(pi => pi.ParameterType).ToArray();
-        
-        var proxyFunc = CreateProxyFunctionWithType(returnType, objId, descriptor, "fn_call", channel);
+        var proxyFunc = CreateProxyFunctionWithType(UnwrapTaskReturnType(method.ReturnType), objId, descriptor, "fn_call", channel);
         
         // put it in registry
         return (T)CreateDynamicWrapperMethod(objId + "_" + descriptor.Name, proxyFunc, funcParamTypes);
     }
 
     public T GetProxyObject<T>(string objId, IRPCChannel? channel = null) {
-        if (!remoteObjectDescriptors.TryGetValue(objId, out var descriptor)) {
+        if (remoteObjectDescriptors?.TryGetValue(objId, out var descriptor) is not true) {
             throw new ArgumentException($"No descriptor found for object ID {objId}.");
         }
-        return (T)proxyGenerator.CreateInterfaceProxyWithoutTarget(typeof(T), 
-            new ProxyObjectInterceptor(this, objId, descriptor, "method_call", channel ?? Channel)
-        );
-    }
-
-    // public T GetProxyObject2<T>(string objId, IRPCChannel? channel = null) {
-    //     if (!remoteObjectDescriptors.TryGetValue(objId, out var descriptor)) {
-    //         throw new ArgumentException($"No descriptor found for object ID {objId}.");
-    //     }
-    //     // return (T)proxyGenerator.CreateInterfaceProxyWithoutTarget(typeof(T), 
-    //     //     new ProxyObjectInterceptor(this, objId, descriptor, "method_call", channel ?? Channel)
-    //     // );
-    //     CreateProxyClass
-    // }
-
-    public record ProxyObjectInterceptor(SuperRPC rpc, string objId, ObjectDescriptor descriptor, string action, IRPCChannel channel) : IInterceptor
-    {
-        private readonly Dictionary<string, Delegate> proxyFunctions = new Dictionary<string, Delegate>();
-
-        public void Intercept(IInvocation invocation) {
-            var methodName = invocation.Method.Name;
-
-            if (!proxyFunctions.TryGetValue(methodName, out var proxyDelegate)) {
-                var funcDescriptor = descriptor.Functions?.FirstOrDefault(descr => descr.Name == methodName);
-                if (funcDescriptor is null) {
-                    throw new ArgumentException($"No function descriptor found for '{methodName}'; objID={objId}");
-                }
-                proxyDelegate = rpc.CreateProxyFunctionWithType(
-                    UnwrapTaskReturnType(invocation.Method.ReturnType),
-                    objId, funcDescriptor, action, channel
-                );
-                proxyFunctions.Add(methodName, proxyDelegate);
-            }
-
-            invocation.ReturnValue = proxyDelegate.DynamicInvoke(new object[] { objId, invocation.Arguments });
-        }
+        var factory = CreateProxyClass(objId + ".class", typeof(T), descriptor, channel);
+        return (T)factory(objId);
     }
 
     private ObjectIdDictionary<string, Type, Func<string, object>?>.Entry GetProxyClassEntry(string classId) {
@@ -693,15 +658,18 @@ public class SuperRPC
     }
 
     private Func<string, object> CreateProxyClass(string classId, IRPCChannel? channel = null) {
-        channel ??= Channel;
-
-        if (!remoteClassDescriptors.TryGetValue(classId, out var descriptor)) {
+        if (remoteClassDescriptors?.TryGetValue(classId, out var descriptor) is not true) {
             throw new ArgumentException($"No class descriptor found with ID '{classId}'.");
         }
 
         var ifType = GetProxyClassEntry(classId).obj;
+        return CreateProxyClass(classId, ifType, descriptor.Instance, channel);
+    }
 
-        var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName(Guid.NewGuid().ToString()), AssemblyBuilderAccess.Run);
+    private Func<string, object> CreateProxyClass(string classId, Type ifType, ObjectDescriptor descriptor, IRPCChannel? channel = null) {
+        channel ??= Channel;
+
+        var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName($"SuperRPC_dynamic({Guid.NewGuid()})"), AssemblyBuilderAccess.Run);
         var moduleBuilder = assemblyBuilder.DefineDynamicModule("MainModule");
         var typeBuilder = moduleBuilder.DefineType(classId,
                 TypeAttributes.Public |
@@ -733,13 +701,15 @@ public class SuperRPC
         
         ctorIL.Emit(OpCodes.Ret);
 
+
+        // Methods
         var methods = ifType.GetMethods(BindingFlags.Public | BindingFlags.Instance);
         var proxyFunctions = new Delegate[methods.Length];
 
         for (var midx = 0; midx < methods.Length; midx++) {
             var methodInfoToImpl = methods[midx];
 
-            var funcDescriptor = descriptor.Instance?.Functions?.FirstOrDefault(desc => desc.Name == methodInfoToImpl.Name);    // TODO: camelCase <-> PascalCase ?
+            var funcDescriptor = descriptor?.Functions?.FirstOrDefault(desc => desc.Name == methodInfoToImpl.Name);    // TODO: camelCase <-> PascalCase ?
             if (funcDescriptor is null) {
                 throw new ArgumentException($"No function descriptor found for method '{methodInfoToImpl.Name}' in class '{classId}'.");
             }
@@ -764,7 +734,7 @@ public class SuperRPC
             var il = methodBuilder.GetILGenerator();
 
             il.Emit(OpCodes.Ldarg_0);                   // "this" (ref of this generated class)
-            il.Emit(OpCodes.Ldfld, proxyFunctionsField);  // "this" (ref of object[] containing proxy function targets)
+            il.Emit(OpCodes.Ldfld, proxyFunctionsField);  // "this" (ref of object[] containing proxy functions)
             il.Emit(OpCodes.Ldc_I4, midx);
             il.Emit(OpCodes.Ldelem_Ref);                // proxyFunction [Delegate] is on the stack now
 
@@ -802,6 +772,67 @@ public class SuperRPC
             }
 
             il.Emit(OpCodes.Ret);
+        }
+
+
+        // Properties
+        var properties = ifType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+
+        for (var pidx = 0; pidx < properties.Length; pidx++) {
+            var propertyInfo = properties[pidx];
+
+            var propDescriptor = descriptor?.ProxiedProperties?.FirstOrDefault(desc => desc.Name == propertyInfo.Name);    // TODO: camelCase <-> PascalCase ?
+            if (propDescriptor is null) {
+                throw new ArgumentException($"No property descriptor found for property '{propertyInfo.Name}' in class '{classId}'.");
+            }
+
+            // backing field
+            var backingFieldBuilder = typeBuilder.DefineField("_" + propertyInfo.Name,
+                propertyInfo.PropertyType,
+                FieldAttributes.Private);
+
+            var propertyBuilder = typeBuilder.DefineProperty(propertyInfo.Name,
+                PropertyAttributes.HasDefault,
+                propertyInfo.PropertyType,
+                null);
+
+            // The property set and property get methods require a special
+            // set of attributes.
+            var getSetAttr = MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
+            
+            // Define the "get" accessor method for CustomerName.
+            var getPropMthdBldr = typeBuilder.DefineMethod("get_" + propertyInfo.Name,
+                getSetAttr,
+                propertyInfo.PropertyType,
+                Type.EmptyTypes);
+
+            var getterIL = getPropMthdBldr.GetILGenerator();
+
+            getterIL.Emit(OpCodes.Ldarg_0);
+            getterIL.Emit(OpCodes.Ldfld, backingFieldBuilder);
+            getterIL.Emit(OpCodes.Ret);
+
+            propertyBuilder.SetGetMethod(getPropMthdBldr);
+
+            if (!(propDescriptor.ReadOnly ?? false)) {
+                // Define the "set" accessor method for CustomerName.
+                var setPropMthdBldr = typeBuilder.DefineMethod("set_" + propertyInfo.Name,
+                    getSetAttr,
+                    null,
+                    new [] { propertyInfo.PropertyType });
+
+                var setterIL = setPropMthdBldr.GetILGenerator();
+
+                setterIL.Emit(OpCodes.Ldarg_0);
+                setterIL.Emit(OpCodes.Ldarg_1);
+                setterIL.Emit(OpCodes.Stfld, backingFieldBuilder);
+                setterIL.Emit(OpCodes.Ret);
+
+                // Last, we must map the two methods created above to our PropertyBuilder to
+                // their corresponding behaviors, "get" and "set" respectively.
+                propertyBuilder.SetSetMethod(setPropMthdBldr);
+            }
+
         }
 
         var type = typeBuilder.CreateType();

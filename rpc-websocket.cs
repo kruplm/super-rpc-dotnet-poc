@@ -41,7 +41,7 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
     }
 
     public static void RegisterCustomDeserializer(SuperRPC rpc) {
-        rpc.RegisterDeserializer(typeof(object), (object obj, Type targetType) => (obj as JObject)?.ToObject(targetType));
+        rpc.RegisterDeserializer(typeof(object), (object obj, Type targetType) => (obj is JObject jObj) ? jObj.ToObject(targetType) : obj);
     }
 
     private const int ReceiveBufferSize = 4 * 1024;
