@@ -26,6 +26,11 @@ public class SuperRpcWebSocketMiddleware
         public string Name { get; set; }
     }
 
+    public interface ITestProxyService {
+        Task<int> Counter { get; set; }
+        void Increment();
+    }
+
     public SuperRpcWebSocketMiddleware(RequestDelegate next, SuperRPC rpc)
     {
         this.next = next;
@@ -64,6 +69,16 @@ public class SuperRpcWebSocketMiddleware
                 jsService.Result.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: {0}", t.Result));
             });
 
+            rpc.RegisterProxyClass<ITestProxyService>("TestService");
+            
+            var getTestService = rpc.GetProxyFunction<Func<Task<ITestProxyService>>>("getTestService", (IRPCChannel?)rpc.CurrentContext);
+            getTestService().ContinueWith(async (testService) => {
+                var service = testService.Result;
+                Console.WriteLine($"TestService counter={await service.Counter}");
+                service.Increment();
+                Console.WriteLine($"TestService counter={await service.Counter}");
+                service.Counter = Task.FromResult(8);
+            });
         });
 
         rpc.RegisterHostClass<MySerive>("MyService", new ClassDescriptor {

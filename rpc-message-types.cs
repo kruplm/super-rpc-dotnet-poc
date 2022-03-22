@@ -46,7 +46,7 @@ public record RPC_AnyCallTypeFnCallMessage: RPC_FnCallMessageBase {
     public string? callId;
     // this should be in *some* of the derived records
     [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-    public string prop;
+    public string? prop;
 }
 
 // public record RPC_VoidFnCallMessage: RPC_AnyCallTypeFnCallMessage {

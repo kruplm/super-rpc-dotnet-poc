@@ -18,7 +18,6 @@ export declare type FunctionReturnBehavior = 'sync' | 'async' | 'void';
 export interface FunctionDescriptor<TReturn extends FunctionReturnBehavior = FunctionReturnBehavior> {
     type?: 'function';
     name?: string;
-    argCount?: number;
     /**
      * Describes the arguments of the function.
      *
@@ -111,7 +110,7 @@ export interface ClassDescriptor {
      */
     instance?: ObjectDescriptor;
 }
-export declare type Descriptor = ObjectDescriptor | FunctionDescriptor | PropertyDescriptor;
+export declare type Descriptor = ObjectDescriptor | FunctionDescriptor | PropertyDescriptor | ClassDescriptor;
 export declare type ObjectDescriptors = {
     [key: string]: ObjectDescriptorWithProps;
 };

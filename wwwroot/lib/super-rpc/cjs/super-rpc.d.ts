@@ -78,7 +78,7 @@ export declare class SuperRPC {
      * @param target The target function
      * @param descriptor Describes arguments and return behavior ([[FunctionReturnBehavior]])
      */
-    registerHostFunction(objId: string, target: AnyFunction, descriptor: FunctionDescriptor): void;
+    registerHostFunction(objId: string, target: AnyFunction, descriptor?: FunctionDescriptor): void;
     /**
      * Register a class in the service.
      *
@@ -150,7 +150,7 @@ export declare class SuperRPC {
     private registerLocalObj;
     private registerLocalFunc;
     private processBeforeSerialization;
-    private processAfterSerialization;
+    private processAfterDeserialization;
     private sendObjectDied;
     private getOrCreateProxyInstance;
     private getOrCreateProxyFunction;

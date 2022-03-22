@@ -70,7 +70,7 @@ export class SuperRPC {
      * @param target The target function
      * @param descriptor Describes arguments and return behavior ([[FunctionReturnBehavior]])
      */
-    registerHostFunction(objId, target, descriptor) {
+    registerHostFunction(objId, target, descriptor = {}) {
         descriptor.type = 'function';
         target[hostObjectId] = objId;
         this.hostFunctionRegistry.set(objId, { target, descriptor });
@@ -200,7 +200,14 @@ export class SuperRPC {
                 }
                 case 'prop_set': {
                     const descr = getPropertyDescriptor(descriptor, msg.prop);
-                    target[msg.prop] = this.processAfterSerialization(msg.args[0], replyChannel, descr?.get?.arguments?.[0]);
+                    const result = this.processAfterDeserialization(msg.args[0], replyChannel, descr?.get?.arguments?.[0]);
+                    // special case for when the property getter is async and the setter gets a Promise
+                    if (result?.constructor === Promise && (descr?.get?.returns === 'async' || !replyChannel.sendSync)) {
+                        result.then((value) => target[msg.prop] = value);
+                    }
+                    else {
+                        target[msg.prop] = result;
+                    }
                     break;
                 }
                 case 'method_call': {
@@ -269,7 +276,7 @@ export class SuperRPC {
                 }
                 case 'fn_reply': {
                     if (message.callType === 'async') {
-                        const result = this.processAfterSerialization(message.result, replyChannel);
+                        const result = this.processAfterDeserialization(message.result, replyChannel);
                         const callbacks = this.asyncCallbacks.get(message.callId);
                         callbacks?.[message.success ? 'resolve' : 'reject'](result);
                         this.asyncCallbacks.delete(message.callId);
@@ -283,7 +290,7 @@ export class SuperRPC {
         return args.map((arg, idx) => this.processBeforeSerialization(arg, replyChannel, getArgumentDescriptor(func, idx)));
     }
     deserializeFunctionArgs(func, args, replyChannel) {
-        return args.map((arg, idx) => this.processAfterSerialization(arg, replyChannel, getArgumentDescriptor(func, idx)));
+        return args.map((arg, idx) => this.processAfterDeserialization(arg, replyChannel, getArgumentDescriptor(func, idx)));
     }
     createVoidProxyFunction(objId, func, action, replyChannel) {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -322,7 +329,7 @@ export class SuperRPC {
                 throw new Error(`Invalid response ${JSON.stringify(response)}`);
             if (!response.success)
                 throw new Error(response.result);
-            return _this.processAfterSerialization(response.result, replyChannel);
+            return _this.processAfterDeserialization(response.result, replyChannel);
         };
         return fn;
     }
@@ -503,7 +510,7 @@ export class SuperRPC {
         }
         return obj;
     }
-    processAfterSerialization(obj, replyChannel, descriptor) {
+    processAfterDeserialization(obj, replyChannel, descriptor) {
         if (typeof obj !== 'object' || !obj)
             return obj;
         switch (obj._rpc_type) {
@@ -518,7 +525,7 @@ export class SuperRPC {
             }
         }
         for (const key of Object.keys(obj)) {
-            obj[key] = this.processAfterSerialization(obj[key], replyChannel, getPropertyDescriptor(descriptor, key));
+            obj[key] = this.processAfterDeserialization(obj[key], replyChannel, getPropertyDescriptor(descriptor, key));
         }
         return obj;
     }

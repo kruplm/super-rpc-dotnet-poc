@@ -1,6 +1,6 @@
 const { SuperRPC } = superrpc;
 
-let rpc, service, squareIt, MyService, testJsHost, testDTO;
+let rpc, service, squareIt, MyService, testJsHost, testDTO, testServiceInstance;
 
 const ws = new WebSocket('ws://localhost:5050/super-rpc');
 ws.addEventListener('open', async () => {
@@ -42,6 +42,23 @@ ws.addEventListener('open', async () => {
 
     const jsServiceInstance = new JsService();
     rpc.registerHostFunction('getJsService', () => jsServiceInstance, {});
+
+    // *** TestService *** //
+    class TestService {
+        Counter = 0;
+        Increment() {
+            this.Counter++;
+        }
+    }
+    rpc.registerHostClass('TestService', TestService, {
+        instance: {
+            functions:[ { name: 'Increment', returns: 'void' }],
+            proxiedProperties: ['Counter']
+        }
+    });
+
+    testServiceInstance = new TestService();
+    rpc.registerHostFunction('getTestService', () => testServiceInstance, {});
 
     rpc.sendRemoteDescriptors();
 

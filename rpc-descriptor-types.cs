@@ -26,9 +26,6 @@ public record FunctionDescriptor(): Descriptor("function")
     [JsonProperty("name")]
     public string? Name;
 
-    [JsonProperty("argCount")]
-    public int ArgCount;
-
     [JsonProperty("arguments", NullValueHandling = NullValueHandling.Ignore)]
     public ArgumentDescriptor[]? Arguments;
 

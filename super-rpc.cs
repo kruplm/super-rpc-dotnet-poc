@@ -1,18 +1,16 @@
-using System.Threading;
-using System.Security;
 using System.Diagnostics;
 using System;
-using System.Linq.Expressions;
+using System.Reflection;
 using System.Reflection.Emit;
 using System.Collections.Generic;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Threading;
+using System.Threading.Tasks;
 
 using ObjectDescriptors = System.Collections.Generic.Dictionary<string, SuperRPC.ObjectDescriptor>;
 using FunctionDescriptors = System.Collections.Generic.Dictionary<string, SuperRPC.FunctionDescriptor>;
 using ClassDescriptors = System.Collections.Generic.Dictionary<string, SuperRPC.ClassDescriptor>;
-
-using System.Reflection;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace SuperRPC;
 
@@ -77,7 +75,11 @@ public class SuperRPC
     }
 
     public void RegisterProxyClass<TInterface>(string classId) {
-        proxyClassRegistry.Add(classId, typeof(TInterface), null);
+        RegisterProxyClass(classId, typeof(TInterface));
+    }
+
+    public void RegisterProxyClass(string classId, Type ifType) {
+        proxyClassRegistry.Add(classId, ifType, null);
     }
 
     private TaskCompletionSource replySent;
@@ -86,6 +88,8 @@ public class SuperRPC
         var message = eventArgs.message;
         var replyChannel = eventArgs.replyChannel ?? Channel;
         CurrentContext = eventArgs.context;
+
+        // Debug.WriteLine($"MessageReceived action={message.action}, {message}");
 
         if (message.rpc_marker != "srpc") return;   // TODO: throw?
 
@@ -333,6 +337,8 @@ public class SuperRPC
             if (type is not null) {
                 var objType = obj.GetType();
 
+                // TODO: Promise -> Task?
+
                 // special cases for _rpc_type=object/function
                 if (proxyClassRegistry.ByObj.TryGetValue(type, out var proxyClassEntry)) {
                     var factory = proxyClassEntry.value;
@@ -399,7 +405,7 @@ public class SuperRPC
         return needToConvert;
     }
 
-    private object? ProcessBeforeSerialization(object? obj, IRPCChannel replyChannel) {
+    private object? ProcessBeforeSerialization(object? obj, IRPCChannel? replyChannel) {
         if (obj is null) return obj;
 
         var objType = obj.GetType();
@@ -464,7 +470,7 @@ public class SuperRPC
         return obj;
     }
 
-    private object?[] ProcessArgumentsBeforeSerialization(object?[] args/* , Type[] parameterTypes */, FunctionDescriptor func, IRPCChannel replyChannel) {
+    private object?[] ProcessArgumentsBeforeSerialization(object?[] args/* , Type[] parameterTypes */, FunctionDescriptor? func, IRPCChannel? replyChannel) {
         for (var i = 0; i < args.Length; i++) {
             var arg = args[i];
             // var type = parameterTypes[i];
@@ -473,14 +479,14 @@ public class SuperRPC
         return args;
     }
 
-    private Delegate CreateVoidProxyFunction<TReturn>(string? objId, FunctionDescriptor func, string action, IRPCChannel replyChannel) {
+    private Delegate CreateVoidProxyFunction<TReturn>(string? objId, FunctionDescriptor? func, string action, IRPCChannel? replyChannel) {
 
         TReturn? ProxyFunction(string instanceObjId, object?[] args) {
             SendAsyncIfPossible(new RPC_AnyCallTypeFnCallMessage {
                 action = action,
                 callType = FunctionReturnBehavior.Void,
                 objId = objId ?? instanceObjId,
-                prop = func.Name,
+                prop = func?.Name,
                 args = ProcessArgumentsBeforeSerialization(args, func, replyChannel)
             }, replyChannel);
             return default;
@@ -489,14 +495,14 @@ public class SuperRPC
         return ProxyFunction;
     }
 
-    private Delegate CreateSyncProxyFunction<TReturn>(string? objId, FunctionDescriptor func, string action, IRPCChannel replyChannel) {
+    private Delegate CreateSyncProxyFunction<TReturn>(string? objId, FunctionDescriptor? func, string action, IRPCChannel? replyChannel) {
         
         TReturn? ProxyFunction(string instanceObjId, object?[] args) {
             var response = (RPC_SyncFnResultMessage?)SendSyncIfPossible(new RPC_AnyCallTypeFnCallMessage {
                 action = action,
                 callType = FunctionReturnBehavior.Sync,
                 objId = objId ?? instanceObjId,
-                prop = func.Name,
+                prop = func?.Name,
                 args = ProcessArgumentsBeforeSerialization(args, func, replyChannel)
             }, replyChannel);
             if (response is null) {
@@ -511,7 +517,7 @@ public class SuperRPC
         return ProxyFunction;
     }
 
-    private Delegate CreateAsyncProxyFunction<TReturn>(string? objId, FunctionDescriptor func, string action, IRPCChannel replyChannel) {
+    private Delegate CreateAsyncProxyFunction<TReturn>(string? objId, FunctionDescriptor? func, string action, IRPCChannel? replyChannel) {
         
         Task<TReturn?> ProxyFunction(string instanceObjId, object?[] args) {
             callId++;
@@ -521,7 +527,7 @@ public class SuperRPC
                 callType = FunctionReturnBehavior.Async,
                 callId = callId.ToString(),
                 objId = objId ?? instanceObjId,
-                prop = func.Name,
+                prop = func?.Name,
                 args = ProcessArgumentsBeforeSerialization(args, func, replyChannel)
             }, replyChannel);
             
@@ -536,7 +542,7 @@ public class SuperRPC
 
     private Delegate CreateProxyFunction<TReturn>(
         string objId,
-        FunctionDescriptor descriptor,
+        FunctionDescriptor? descriptor,
         string action,
         FunctionReturnBehavior defaultCallType = FunctionReturnBehavior.Async,
         IRPCChannel? replyChannel = null)
@@ -557,7 +563,7 @@ public class SuperRPC
     private Delegate CreateProxyFunctionWithType(
         Type returnType,
         string? objId,
-        FunctionDescriptor descriptor,
+        FunctionDescriptor? descriptor,
         string action,
         IRPCChannel? replyChannel = null,
         FunctionReturnBehavior defaultCallType = FunctionReturnBehavior.Async)
@@ -565,7 +571,7 @@ public class SuperRPC
         if (returnType == typeof(void)) {
             returnType = typeof(object);
         }
-        return (Delegate)GetType()
+        return (Delegate)(typeof(SuperRPC))
             .GetMethod("CreateProxyFunction", BindingFlags.NonPublic | BindingFlags.Instance)
             .MakeGenericMethod(returnType)
             .Invoke(this, new object[] { objId, descriptor, action, defaultCallType, replyChannel });
@@ -701,95 +707,24 @@ public class SuperRPC
         
         ctorIL.Emit(OpCodes.Ret);
 
-
-        // Methods
-        var methods = ifType.GetMethods(BindingFlags.Public | BindingFlags.Instance);
-        var proxyFunctions = new Delegate[methods.Length];
-
-        for (var midx = 0; midx < methods.Length; midx++) {
-            var methodInfoToImpl = methods[midx];
-
-            var funcDescriptor = descriptor?.Functions?.FirstOrDefault(desc => desc.Name == methodInfoToImpl.Name);    // TODO: camelCase <-> PascalCase ?
-            if (funcDescriptor is null) {
-                throw new ArgumentException($"No function descriptor found for method '{methodInfoToImpl.Name}' in class '{classId}'.");
-            }
-
-            var paramInfos = methodInfoToImpl.GetParameters();
-            var paramTypes = paramInfos.Select(pi => pi.ParameterType).ToArray();
-
-            var methodBuilder = typeBuilder.DefineMethod(methodInfoToImpl.Name,
-                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final,
-                CallingConventions.HasThis,
-                methodInfoToImpl.ReturnType,
-                methodInfoToImpl.ReturnParameter.GetRequiredCustomModifiers(),
-                methodInfoToImpl.ReturnParameter.GetOptionalCustomModifiers(),
-                paramTypes,
-                paramInfos.Select(pi => pi.GetRequiredCustomModifiers()).ToArray(),
-                paramInfos.Select(pi => pi.GetOptionalCustomModifiers()).ToArray()
-            );
-
-            var proxyFunction = CreateProxyFunctionWithType(UnwrapTaskReturnType(methodInfoToImpl.ReturnType), null, funcDescriptor, "method_call", channel);
-            proxyFunctions[midx] = proxyFunction;
-
-            var il = methodBuilder.GetILGenerator();
-
-            il.Emit(OpCodes.Ldarg_0);                   // "this" (ref of this generated class)
-            il.Emit(OpCodes.Ldfld, proxyFunctionsField);  // "this" (ref of object[] containing proxy functions)
-            il.Emit(OpCodes.Ldc_I4, midx);
-            il.Emit(OpCodes.Ldelem_Ref);                // proxyFunction [Delegate] is on the stack now
-
-            il.Emit(OpCodes.Ldc_I4_2);
-            il.Emit(OpCodes.Newarr, typeof(object));    //arr2 = new object[2]
-            
-            il.Emit(OpCodes.Dup);               // arr2
-            il.Emit(OpCodes.Ldc_I4_0);          // 0
-            il.Emit(OpCodes.Ldarg_0);           // "this" 
-            il.Emit(OpCodes.Ldfld, objIdField); // push(this.objId)
-            il.Emit(OpCodes.Stelem_Ref);        // arr2[0] = objId
-            
-            il.Emit(OpCodes.Dup);               // arr2
-            il.Emit(OpCodes.Ldc_I4_1);          // 1
-            
-            il.Emit(OpCodes.Ldc_I4, paramTypes.Length);
-            il.Emit(OpCodes.Newarr, typeof(object));    //arr1 = new object[paramTypes.Length]
-
-            for (var i = 0; i < paramTypes.Length; i++) {
-                il.Emit(OpCodes.Dup);               // arr ref
-                il.Emit(OpCodes.Ldc_I4, i);         // int32: idx
-                il.Emit(OpCodes.Ldarg, i + 1);      // arg(i+1)
-                if (paramTypes[i].IsValueType) {
-                    il.Emit(OpCodes.Box, paramTypes[i]);
-                }
-                il.Emit(OpCodes.Stelem_Ref);        // arr1[idx] = arg
-            }
-
-            il.Emit(OpCodes.Stelem_Ref);    // arr2[1] = arr1
-
-            il.Emit(OpCodes.Callvirt, typeof(Delegate).GetMethod("DynamicInvoke"));
-
-            if (methodInfoToImpl.ReturnType == typeof(void)) {
-                il.Emit(OpCodes.Pop);
-            }
-
-            il.Emit(OpCodes.Ret);
-        }
-
+        var proxyFunctions = new List<Delegate>();
+        var propertyMethods = new List<string>();
 
         // Properties
         var properties = ifType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
 
-        for (var pidx = 0; pidx < properties.Length; pidx++) {
-            var propertyInfo = properties[pidx];
+        foreach (var propertyInfo in properties) {
+            var isProxied = true;
 
             var propDescriptor = descriptor?.ProxiedProperties?.FirstOrDefault(desc => desc.Name == propertyInfo.Name);    // TODO: camelCase <-> PascalCase ?
             if (propDescriptor is null) {
-                throw new ArgumentException($"No property descriptor found for property '{propertyInfo.Name}' in class '{classId}'.");
+                if (descriptor?.ReadonlyProperties?.Contains(propertyInfo.Name) is not true) { // TODO: camelCase <-> PascalCase ?
+                    throw new ArgumentException($"No property descriptor found for property '{propertyInfo.Name}' in class '{classId}'.");
+                }
+                isProxied = false;
             }
 
-            // backing field
-            var backingFieldBuilder = typeBuilder.DefineField("_" + propertyInfo.Name,
-                propertyInfo.PropertyType,
-                FieldAttributes.Private);
+            var isGetOnly = propDescriptor?.ReadOnly ?? false;
 
             var propertyBuilder = typeBuilder.DefineProperty(propertyInfo.Name,
                 PropertyAttributes.HasDefault,
@@ -798,48 +733,137 @@ public class SuperRPC
 
             // The property set and property get methods require a special
             // set of attributes.
-            var getSetAttr = MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
+            var getSetAttr = MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName | MethodAttributes.HideBySig;
             
-            // Define the "get" accessor method for CustomerName.
-            var getPropMthdBldr = typeBuilder.DefineMethod("get_" + propertyInfo.Name,
+            // Define the "get" accessor method
+            var getterName = "get_" + propertyInfo.Name;
+            propertyMethods.Add(getterName);
+            var getPropMthdBldr = typeBuilder.DefineMethod(getterName,
                 getSetAttr,
                 propertyInfo.PropertyType,
                 Type.EmptyTypes);
 
             var getterIL = getPropMthdBldr.GetILGenerator();
-
-            getterIL.Emit(OpCodes.Ldarg_0);
-            getterIL.Emit(OpCodes.Ldfld, backingFieldBuilder);
-            getterIL.Emit(OpCodes.Ret);
-
             propertyBuilder.SetGetMethod(getPropMthdBldr);
 
-            if (!(propDescriptor.ReadOnly ?? false)) {
-                // Define the "set" accessor method for CustomerName.
-                var setPropMthdBldr = typeBuilder.DefineMethod("set_" + propertyInfo.Name,
+            ILGenerator? setterIL = null;
+            if (!isGetOnly) {
+                // Define the "set" accessor method 
+                var setterName = "set_" + propertyInfo.Name;
+                propertyMethods.Add(setterName);
+                var setPropMthdBldr = typeBuilder.DefineMethod(setterName,
                     getSetAttr,
                     null,
                     new [] { propertyInfo.PropertyType });
 
-                var setterIL = setPropMthdBldr.GetILGenerator();
+                setterIL = setPropMthdBldr.GetILGenerator();
+                propertyBuilder.SetSetMethod(setPropMthdBldr);
+            }
+
+            if (isProxied) {
+                GenerateILMethod(getterIL, objIdField, proxyFunctionsField, proxyFunctions.Count, Type.EmptyTypes, propertyInfo.PropertyType);
+                proxyFunctions.Add(CreateProxyFunctionWithType(UnwrapTaskReturnType(propertyInfo.PropertyType), null, 
+                    propDescriptor?.Get ?? new FunctionDescriptor { Name = propDescriptor.Name }, "prop_get", channel));
+
+                if (!isGetOnly) {
+                    GenerateILMethod(setterIL, objIdField, proxyFunctionsField, proxyFunctions.Count, new [] { propertyInfo.PropertyType }, typeof(void));
+                    proxyFunctions.Add(CreateProxyFunctionWithType(typeof(void), null, 
+                        propDescriptor?.Set ?? new FunctionDescriptor { Name = propDescriptor.Name }, "prop_set", channel));
+                }
+            } else {    // not proxied -> "readonly"
+                // backing field
+                var backingFieldBuilder = typeBuilder.DefineField("_" + propertyInfo.Name,
+                    propertyInfo.PropertyType,
+                    FieldAttributes.Private);
+
+                getterIL.Emit(OpCodes.Ldarg_0);
+                getterIL.Emit(OpCodes.Ldfld, backingFieldBuilder);
+                getterIL.Emit(OpCodes.Ret);
 
                 setterIL.Emit(OpCodes.Ldarg_0);
                 setterIL.Emit(OpCodes.Ldarg_1);
                 setterIL.Emit(OpCodes.Stfld, backingFieldBuilder);
                 setterIL.Emit(OpCodes.Ret);
+            }
+        }
 
-                // Last, we must map the two methods created above to our PropertyBuilder to
-                // their corresponding behaviors, "get" and "set" respectively.
-                propertyBuilder.SetSetMethod(setPropMthdBldr);
+        // Methods
+        var methods = ifType.GetMethods(BindingFlags.Public | BindingFlags.Instance);
+
+        foreach (var methodInfo in methods) {
+            if (propertyMethods.Contains(methodInfo.Name)) continue;
+
+            var funcDescriptor = descriptor?.Functions?.FirstOrDefault(desc => desc.Name == methodInfo.Name);    // TODO: camelCase <-> PascalCase ?
+            if (funcDescriptor is null) {
+                throw new ArgumentException($"No function descriptor found for method '{methodInfo.Name}' in class '{classId}'.");
             }
 
+            var paramInfos = methodInfo.GetParameters();
+            var paramTypes = paramInfos.Select(pi => pi.ParameterType).ToArray();
+
+            var methodBuilder = typeBuilder.DefineMethod(methodInfo.Name,
+                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final,
+                CallingConventions.HasThis,
+                methodInfo.ReturnType,
+                methodInfo.ReturnParameter.GetRequiredCustomModifiers(),
+                methodInfo.ReturnParameter.GetOptionalCustomModifiers(),
+                paramTypes,
+                paramInfos.Select(pi => pi.GetRequiredCustomModifiers()).ToArray(),
+                paramInfos.Select(pi => pi.GetOptionalCustomModifiers()).ToArray()
+            );
+
+            GenerateILMethod(methodBuilder.GetILGenerator(), objIdField, proxyFunctionsField, proxyFunctions.Count, paramTypes, methodInfo.ReturnType);
+            proxyFunctions.Add(CreateProxyFunctionWithType(UnwrapTaskReturnType(methodInfo.ReturnType), null, funcDescriptor, "method_call", channel));
         }
 
+        var proxyFunctionsArr = proxyFunctions.ToArray();
         var type = typeBuilder.CreateType();
         object CreateInstance(string objId) {
-            return Activator.CreateInstance(type, objId, proxyFunctions);
+            return Activator.CreateInstance(type, objId, proxyFunctionsArr);
         }
         return CreateInstance;
+    }
+
+    void GenerateILMethod(ILGenerator il, FieldBuilder objIdField, FieldBuilder proxyFunctionsField, int funcIdx, Type[] paramTypes, Type returnType) {
+        il.Emit(OpCodes.Ldarg_0);                   // "this" (ref of this generated class)
+        il.Emit(OpCodes.Ldfld, proxyFunctionsField);  // "this" (ref of object[] containing proxy functions)
+        il.Emit(OpCodes.Ldc_I4, funcIdx);
+        il.Emit(OpCodes.Ldelem_Ref);                // proxyFunction [Delegate] is on the stack now
+
+        il.Emit(OpCodes.Ldc_I4_2);
+        il.Emit(OpCodes.Newarr, typeof(object));    //arr2 = new object[2]
+
+        il.Emit(OpCodes.Dup);               // arr2
+        il.Emit(OpCodes.Ldc_I4_0);          // 0
+        il.Emit(OpCodes.Ldarg_0);           // "this" 
+        il.Emit(OpCodes.Ldfld, objIdField); // push(this.objId)
+        il.Emit(OpCodes.Stelem_Ref);        // arr2[0] = objId
+        
+        il.Emit(OpCodes.Dup);               // arr2
+        il.Emit(OpCodes.Ldc_I4_1);          // 1
+        
+        il.Emit(OpCodes.Ldc_I4, paramTypes.Length);
+        il.Emit(OpCodes.Newarr, typeof(object));    //arr1 = new object[paramTypes.Length]
+
+        for (var i = 0; i < paramTypes.Length; i++) {
+            il.Emit(OpCodes.Dup);               // arr ref
+            il.Emit(OpCodes.Ldc_I4, i);         // int32: idx
+            il.Emit(OpCodes.Ldarg, i + 1);      // arg(i+1)
+            if (paramTypes[i].IsValueType) {
+                il.Emit(OpCodes.Box, paramTypes[i]);
+            }
+            il.Emit(OpCodes.Stelem_Ref);        // arr1[idx] = arg
+        }
+
+        il.Emit(OpCodes.Stelem_Ref);    // arr2[1] = arr1
+
+        il.Emit(OpCodes.Callvirt, typeof(Delegate).GetMethod("DynamicInvoke"));
+
+        if (returnType == typeof(void)) {
+            il.Emit(OpCodes.Pop);
+        }
+
+        il.Emit(OpCodes.Ret);
     }
 }
 

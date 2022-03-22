@@ -31,7 +31,6 @@ function processFunctionDescriptor(descriptor, func) {
     if (typeof descriptor === 'string')
         descriptor = { name: descriptor, type: 'function' };
     descriptor ??= { type: 'function' };
-    descriptor.argCount = func.length;
     descriptor.name ??= func.name;
     return descriptor;
 }
