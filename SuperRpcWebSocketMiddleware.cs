@@ -12,8 +12,6 @@ namespace SuperRPC;
 public class SuperRpcWebSocketMiddleware 
 {
     private readonly RequestDelegate next;
-    private readonly SuperRPC rpc;
-    private readonly RPCReceiveChannel receiveChannel;
 
     MySerive service = new MySerive();
 
@@ -31,46 +29,48 @@ public class SuperRpcWebSocketMiddleware
         void Increment();
     }
 
-    public SuperRpcWebSocketMiddleware(RequestDelegate next, SuperRPC rpc)
+    public SuperRpcWebSocketMiddleware(RequestDelegate next)
     {
         this.next = next;
-        this.rpc = rpc;
+    }
+
+    private void SetupRPC(RPCReceiveChannel channel) {
+        var rpc = new SuperRPC(() => Guid.NewGuid().ToString("N"));
 
         SuperRPCWebSocket.RegisterCustomDeserializer(rpc);
 
-        receiveChannel = new RPCReceiveChannel();
-        rpc.Connect(receiveChannel);
+        rpc.Connect(channel);
 
-          // register host objects here
-        
+        // register host objects here
+
         rpc.RegisterHostObject("service", service, new ObjectDescriptor {
             Functions = new FunctionDescriptor[] { "Add", "Increment" },
             ProxiedProperties = new PropertyDescriptor[] { "Counter" }
         });
 
         rpc.RegisterHostFunction("squareIt", (int x) => "Hey, can you see me?");
-        
+
         rpc.RegisterHostFunction("testDTO", (CustomDTO x) => Debug.WriteLine($"Custom DTO name: {x.Name}"));
 
         rpc.RegisterHostFunction("testJsHost", () => {
-            var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc", (IRPCChannel?)rpc.CurrentContext);
-            var rs = jsFunc("hello", "world");
-            rs.ContinueWith( t => Console.WriteLine("JS func call: {0}", t.Result));
+            // var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc", (IRPCChannel?)rpc.CurrentContext);
+            // var rs = jsFunc("hello", "world");
+            // rs.ContinueWith( t => Console.WriteLine("JS func call: {0}", t.Result));
 
-            var jsObj = rpc.GetProxyObject<IService>("jsObj", (IRPCChannel?)rpc.CurrentContext);
-            var result = jsObj.Add(5, 6);
-            result.ContinueWith( t => Console.WriteLine("JS object method: {0}", t.Result));
+            // var jsObj = rpc.GetProxyObject<IService>("jsObj", (IRPCChannel?)rpc.CurrentContext);
+            // var result = jsObj.Add(5, 6);
+            // result.ContinueWith( t => Console.WriteLine("JS object method: {0}", t.Result));
 
 
-            rpc.RegisterProxyClass<IService>("JsService");
+            // rpc.RegisterProxyClass<IService>("JsService");
             
-            var getJsService = rpc.GetProxyFunction<Func<Task<IService>>>("getJsService", (IRPCChannel?)rpc.CurrentContext);
-            getJsService().ContinueWith(jsService => {
-                jsService.Result.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: {0}", t.Result));
-            });
+            // var getJsService = rpc.GetProxyFunction<Func<Task<IService>>>("getJsService", (IRPCChannel?)rpc.CurrentContext);
+            // getJsService().ContinueWith(jsService => {
+            //     jsService.Result.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: {0}", t.Result));
+            // });
 
             rpc.RegisterProxyClass<ITestProxyService>("TestService");
-            
+
             var getTestService = rpc.GetProxyFunction<Func<Task<ITestProxyService>>>("getTestService", (IRPCChannel?)rpc.CurrentContext);
             getTestService().ContinueWith(async (testService) => {
                 var service = testService.Result;
@@ -102,7 +102,9 @@ public class SuperRpcWebSocketMiddleware
             {
                 using (WebSocket webSocket = await context.WebSockets.AcceptWebSocketAsync())
                 {
-                    await SuperRPCWebSocket.HandleWebsocketConnectionAsync(webSocket, receiveChannel);
+                    var rpcWebSocketHandler = SuperRPCWebSocket.CreateHandler(webSocket);
+                    SetupRPC(rpcWebSocketHandler.ReceiveChannel);
+                    await rpcWebSocketHandler.StartReceivingAsync();
                 }
             }
             else
