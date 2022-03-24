@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 
@@ -11,8 +12,6 @@ public class MySerive
         return a * b;
     }
 
-
-
     public int Add(int a, int b) {
         return a + b;
     }
@@ -22,5 +21,14 @@ public class MySerive
     public int Increment() {
         Debug.WriteLine("Increment called");
         return ++Counter;
+    }
+
+    public Task<string> GetName() {
+        return Task.FromResult("John");
+    }
+
+    public async Task<object?> LogMsgLater(Task<string> task) {
+        await task.ContinueWith(t => Console.WriteLine($"Task completed: {t.Result}"));
+        return default;
     }
 }

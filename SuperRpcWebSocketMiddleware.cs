@@ -44,7 +44,7 @@ public class SuperRpcWebSocketMiddleware
         // register host objects here
 
         rpc.RegisterHostObject("service", service, new ObjectDescriptor {
-            Functions = new FunctionDescriptor[] { "Add", "Increment" },
+            Functions = new FunctionDescriptor[] { "Add", "Increment", "GetName", "LogMsgLater" },
             ProxiedProperties = new PropertyDescriptor[] { "Counter" }
         });
 
@@ -88,7 +88,7 @@ public class SuperRpcWebSocketMiddleware
                 ProxiedProperties = new PropertyDescriptor[] { "StaticCounter" }
             },
             Instance = new ObjectDescriptor {
-                Functions = new FunctionDescriptor[] { "Add", "Increment" },
+                Functions = new FunctionDescriptor[] { "Add", "Increment", "GetName", "LogMsgLater" },
                 ProxiedProperties = new PropertyDescriptor[] { "Counter" }
             }
         });
