@@ -362,6 +362,11 @@ public class SuperRPC
                 if (rpcObjDeserializer is not null) {
                     var rpcObj = rpcObjDeserializer(obj, typeof(RPC_Object)) as RPC_Object;
                     if (rpcObj is not null) {
+                        if (rpcObj._rpc_type == "function") {
+                            var proxyFunc = CreateProxyFunctionWithDelegateType(type, rpcObj.objId, replyChannel, new FunctionDescriptor());
+                            obj = proxyFunc;
+                            objType = obj.GetType();
+                        }
                         // Promise -> Task
                         if (rpcObj.classId == "Promise") {
                             if (asyncCallbacks.TryGetValue(rpcObj.objId, out var asyncEntry)) {
@@ -610,7 +615,7 @@ public class SuperRPC
         };
     }
 
-    private Delegate CreateProxyFunctionWithType(
+    private Delegate CreateProxyFunctionWithReturnType(
         Type returnType,
         string? objId,
         FunctionDescriptor? descriptor,
@@ -627,9 +632,9 @@ public class SuperRPC
             .Invoke(this, new object[] { objId, descriptor, action, defaultCallType, replyChannel });
     }
 
-    private Delegate CreateDynamicWrapperMethod(string methodName, Delegate proxyFunction, Type[] paramTypes) {
+    private Delegate CreateDynamicWrapperMethod(string methodName, Delegate proxyFunction, Type[] paramTypes, Type returnType) {
         var dmethod = new DynamicMethod(methodName,
-            proxyFunction.Method.ReturnType,
+            returnType,
             paramTypes.Prepend(proxyFunction.Target.GetType()).ToArray(),
             proxyFunction.Target.GetType(), true);
 
@@ -653,13 +658,19 @@ public class SuperRPC
         }
 
         il.Emit(OpCodes.Call, proxyFunction.Method);
+        if (returnType == typeof(void)) {
+            il.Emit(OpCodes.Pop);
+        }
         il.Emit(OpCodes.Ret);
 
-        var delegateTypes = Expression.GetDelegateType(paramTypes.Append(proxyFunction.Method.ReturnType).ToArray());
+        var delegateTypes = Expression.GetDelegateType(paramTypes.Append(returnType).ToArray());
 
         return dmethod.CreateDelegate(delegateTypes, proxyFunction.Target);
     }
 
+    private static bool IsTaskType(Type type) {
+        return type == typeof(Task) || type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Task<>);
+    }
     private static Type UnwrapTaskReturnType(Type type) {
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Task<>)) {
             type = type.GetGenericArguments()[0];
@@ -675,16 +686,27 @@ public class SuperRPC
             throw new ArgumentException($"No object descriptor found with ID '{objId}'.");
         }
 
-        var method = typeof(T).GetMethod("Invoke");
+        // put it in registry
+        return (T)CreateProxyFunctionDelegate<T>(objId, channel, descriptor);
+    }
+        
+    private Delegate CreateProxyFunctionDelegate<T>(string objId, IRPCChannel channel, FunctionDescriptor descriptor) where T: Delegate {
+        var method = typeof(T).GetMethod("Invoke") ?? typeof(T).GetMethod("DynamicInvoke");
         if (method is null) {
             throw new ArgumentException($"Given generic type is not a Delegate ({typeof(T).FullName})");
         }
 
         var funcParamTypes = method.GetParameters().Select(pi => pi.ParameterType).ToArray();
-        var proxyFunc = CreateProxyFunctionWithType(UnwrapTaskReturnType(method.ReturnType), objId, descriptor, "fn_call", channel);
+        var proxyFunc = CreateProxyFunctionWithReturnType(UnwrapTaskReturnType(method.ReturnType), objId, descriptor, "fn_call", channel);
         
-        // put it in registry
-        return (T)CreateDynamicWrapperMethod(objId + "_" + descriptor.Name, proxyFunc, funcParamTypes);
+        return CreateDynamicWrapperMethod(objId + "_" + descriptor.Name, proxyFunc, funcParamTypes, method.ReturnType);
+    }
+
+    private Delegate CreateProxyFunctionWithDelegateType(Type delegateType, string objId, IRPCChannel channel, FunctionDescriptor descriptor) {
+        return (Delegate)(typeof(SuperRPC))
+            .GetMethod("CreateProxyFunctionDelegate", BindingFlags.NonPublic | BindingFlags.Instance)
+            .MakeGenericMethod(delegateType)
+            .Invoke(this, new object[] { objId, channel, descriptor });
     }
 
     public T GetProxyObject<T>(string objId, IRPCChannel? channel = null) {
@@ -812,12 +834,12 @@ public class SuperRPC
 
             if (isProxied) {
                 GenerateILMethod(getterIL, objIdField, proxyFunctionsField, proxyFunctions.Count, Type.EmptyTypes, propertyInfo.PropertyType);
-                proxyFunctions.Add(CreateProxyFunctionWithType(UnwrapTaskReturnType(propertyInfo.PropertyType), null, 
+                proxyFunctions.Add(CreateProxyFunctionWithReturnType(UnwrapTaskReturnType(propertyInfo.PropertyType), null, 
                     propDescriptor?.Get ?? new FunctionDescriptor { Name = propDescriptor.Name }, "prop_get", channel));
 
                 if (!isGetOnly) {
                     GenerateILMethod(setterIL, objIdField, proxyFunctionsField, proxyFunctions.Count, new [] { propertyInfo.PropertyType }, typeof(void));
-                    proxyFunctions.Add(CreateProxyFunctionWithType(typeof(void), null, 
+                    proxyFunctions.Add(CreateProxyFunctionWithReturnType(typeof(void), null, 
                         propDescriptor?.Set ?? new FunctionDescriptor { Name = propDescriptor.Name }, "prop_set", channel));
                 }
             } else {    // not proxied -> "readonly"
@@ -863,7 +885,7 @@ public class SuperRPC
             );
 
             GenerateILMethod(methodBuilder.GetILGenerator(), objIdField, proxyFunctionsField, proxyFunctions.Count, paramTypes, methodInfo.ReturnType);
-            proxyFunctions.Add(CreateProxyFunctionWithType(UnwrapTaskReturnType(methodInfo.ReturnType), null, funcDescriptor, "method_call", channel));
+            proxyFunctions.Add(CreateProxyFunctionWithReturnType(UnwrapTaskReturnType(methodInfo.ReturnType), null, funcDescriptor, "method_call", channel));
         }
 
         var proxyFunctionsArr = proxyFunctions.ToArray();

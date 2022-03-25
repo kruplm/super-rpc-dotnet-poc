@@ -31,4 +31,8 @@ public class MySerive
         await task.ContinueWith(t => Console.WriteLine($"Task completed: {t.Result}"));
         return default;
     }
+
+    public void CallMeLater(Func<object[], object> d) {
+        Task.Delay(3000).ContinueWith(t => d.Invoke(new object[] { }));
+    }
 }

@@ -44,7 +44,14 @@ public class SuperRpcWebSocketMiddleware
         // register host objects here
 
         rpc.RegisterHostObject("service", service, new ObjectDescriptor {
-            Functions = new FunctionDescriptor[] { "Add", "Increment", "GetName", "LogMsgLater" },
+            Functions = new FunctionDescriptor[] { 
+                "Add", "Increment", "GetName", "LogMsgLater",
+                new FunctionDescriptor { 
+                    Name = "CallMeLater", Arguments = new [] { 
+                        new ArgumentDescriptor { idx = 0, Returns = FunctionReturnBehavior.Void } 
+                    } 
+                }
+            },
             ProxiedProperties = new PropertyDescriptor[] { "Counter" }
         });
 
