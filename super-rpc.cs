@@ -473,7 +473,7 @@ public class SuperRPC
     private AsyncCallbackEntry CreateAsyncCallback(Type returnType) {
         dynamic source = typeof(TaskCompletionSource<>).MakeGenericType(returnType).GetConstructor(Type.EmptyTypes).Invoke(null);
         return new AsyncCallbackEntry(source.Task,
-            (Action<object?>)GetType().GetMethod("CreateSetResultDelegate", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy)
+            (Action<object?>)GetType().GetMethod("CreateSetResultDelegate", BindingFlags.NonPublic | BindingFlags.Static)
                 .MakeGenericMethod(returnType).Invoke(null, new object[] { source }),
             (Action<Exception>)((Exception ex) => source.SetException(ex)),
             returnType);

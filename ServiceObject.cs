@@ -27,9 +27,8 @@ public class MySerive
         return Task.FromResult("John");
     }
 
-    public async Task<object?> LogMsgLater(Task<int> task) {
-        await task.ContinueWith(t => Console.WriteLine($"Task completed: {t.Result}"));
-        return default;
+    public void LogMsgLater(Task<string> task) {
+        task.ContinueWith(t => Console.WriteLine($"Task completed: {t.Result}"));
     }
 
     public void CallMeLater(Func<string, Task<string>> d) {
