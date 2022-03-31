@@ -32,7 +32,7 @@ public class MySerive
         return default;
     }
 
-    public void CallMeLater(Func<object[], object> d) {
-        Task.Delay(3000).ContinueWith(t => d.Invoke(new object[] { }));
+    public void CallMeLater(Func<string, Task<string>> d) {
+        Task.Delay(3000).ContinueWith(async t => Console.WriteLine("got back " + await d("Helloo")));
     }
 }

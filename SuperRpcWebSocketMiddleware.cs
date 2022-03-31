@@ -47,8 +47,8 @@ public class SuperRpcWebSocketMiddleware
             Functions = new FunctionDescriptor[] { 
                 "Add", "Increment", "GetName", "LogMsgLater",
                 new FunctionDescriptor { 
-                    Name = "CallMeLater", Arguments = new [] { 
-                        new ArgumentDescriptor { idx = 0, Returns = FunctionReturnBehavior.Void } 
+                    Name = "CallMeLater", Arguments = new [] {
+                        new ArgumentDescriptor { idx = 0, Returns = FunctionReturnBehavior.Async }
                     } 
                 }
             },

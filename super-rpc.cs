@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -113,7 +112,7 @@ public class SuperRPC
                 if (fnResult.callType == FunctionReturnBehavior.Async) {
                     if (asyncCallbacks.TryGetValue(fnResult.callId, out var entry)) {
                         if (fnResult.success) {
-                            var result = ProcessAfterDeserialization(fnResult.result, replyChannel, entry.type);
+                            var result = ProcessValueAfterDeserialization(fnResult.result, replyChannel, entry.type);
                             entry.complete.SetResult(result);
                         } else {
                             entry.complete.SetException(new ArgumentException(fnResult.result?.ToString()));
@@ -154,25 +153,31 @@ public class SuperRPC
                     if (propInfo is null) {
                         throw new ArgumentException($"Could not find property '{propSet.prop}' on object '{propSet.objId}'.");
                     }
-                    var value = ProcessAfterDeserialization(propSet.args[0], replyChannel, propInfo.PropertyType);
+                    var argDescriptors = entry.value.ProxiedProperties?.FirstOrDefault(pd => pd.Name == propSet.prop)?.Set?.Arguments;
+                    var argDescriptor = argDescriptors?.Length > 0 ? argDescriptors[0] : null;
+                    var value = ProcessValueAfterDeserialization(propSet.args[0], replyChannel, propInfo.PropertyType, argDescriptor);
                     propInfo.SetValue(entry.obj, value);
                     break;
                 }
                 case RPC_RpcCallMessage methodCall: {
                     var entry = GetHostObject(message.objId, hostObjectRegistry.ById);
                     var method = (entry.obj as Type ?? entry.obj.GetType()).GetMethod(methodCall.prop);
-                    // var d = method.CreateDelegate<Delegate>();
+                    var argDescriptors = entry.value.Functions?.FirstOrDefault(fd => fd.Name == methodCall.prop)?.Arguments;
                     if (method is null) {
                         throw new ArgumentException($"Method '{methodCall.prop}' not found on object '{methodCall.objId}'.");
                     }
-                    var args = ProcessArgumentsAfterDeserialization(methodCall.args, replyChannel, method.GetParameters().Select(param => param.ParameterType).ToArray());
+                    var args = ProcessArgumentsAfterDeserialization(methodCall.args, replyChannel, method.GetParameters().Select(param => param.ParameterType).ToArray(), argDescriptors);
                     result = method.Invoke(entry.obj, args);
                     break;
                 }
                 case RPC_FnCallMessage fnCall: {
                     var entry = GetHostObject(message.objId, hostFunctionRegistry.ById);
                     var method = entry.obj.Method;
-                    var args = ProcessArgumentsAfterDeserialization(fnCall.args, replyChannel, method.GetParameters().Select(param => param.ParameterType).ToArray());
+                    var args = ProcessArgumentsAfterDeserialization(
+                        fnCall.args,
+                        replyChannel,
+                        method.GetParameters().Select(param => param.ParameterType).ToArray(),
+                        entry.value?.Arguments);
                     result = entry.obj.DynamicInvoke(args);
                     break;
                 }
@@ -182,7 +187,11 @@ public class SuperRPC
                         throw new ArgumentException($"No class found with ID '{classId}'.");
                     }
                     var method = entry.obj.GetConstructors()[0];
-                    var args = ProcessArgumentsAfterDeserialization(ctorCall.args, replyChannel, method.GetParameters().Select(param => param.ParameterType).ToArray());
+                    var args = ProcessArgumentsAfterDeserialization(
+                        ctorCall.args,
+                        replyChannel,
+                        method.GetParameters().Select(param => param.ParameterType).ToArray(),
+                        entry.value.Ctor?.Arguments);
                     result = method.Invoke(args);
                     break;
                 }
@@ -207,12 +216,12 @@ public class SuperRPC
             if (result is Task task) {
                 SendResultOnTaskCompletion(task, SendAsyncResult, replyChannel);
             }  else {
-                SendAsyncResult(success, ProcessBeforeSerialization(result, replyChannel));
+                SendAsyncResult(success, ProcessValueBeforeSerialization(result, replyChannel));
             }
         } else if (message.callType == FunctionReturnBehavior.Sync) {
             SendSyncIfPossible(new RPC_SyncFnResultMessage {
                 success = success,
-                result = ProcessBeforeSerialization(result, replyChannel),
+                result = ProcessValueBeforeSerialization(result, replyChannel),
             }, replyChannel);
         }
 
@@ -336,123 +345,6 @@ public class SuperRPC
         deserializers.Add(type, deserializer);
     }
 
-    private Func<object, Type, object>? GetDeserializer(Type type) {
-        if (deserializers.TryGetValue(type, out var deserializer)) {
-            return deserializer;
-        } else if (deserializers.TryGetValue(typeof(object), out deserializer)) {
-            return deserializer;
-        }
-        return null;
-    }
-
-    private static Func<Task<object?>, TResult> CreateTaskResultConverter<TResult>() {
-        return (Task<object?> task) => (TResult)task.Result;
-    }
-
-    private object? ProcessAfterDeserialization(object? obj, IRPCChannel replyChannel, Type? type = null) {
-        if (obj is null) {
-            if (type?.IsValueType == true) {
-                throw new ArgumentException("null cannot be passed as a value type");
-            }
-        } else {
-            if (type is not null) {
-                var objType = obj.GetType();
-
-                var rpcObjDeserializer = GetDeserializer(typeof(RPC_Object));
-                if (rpcObjDeserializer is not null) {
-                    var rpcObj = rpcObjDeserializer(obj, typeof(RPC_Object)) as RPC_Object;
-                    if (rpcObj is not null) {
-                        if (rpcObj._rpc_type == "function") {
-                            var proxyFunc = CreateProxyFunctionWithDelegateType(type, rpcObj.objId, replyChannel, new FunctionDescriptor());
-                            obj = proxyFunc;
-                            objType = obj.GetType();
-                        }
-                        // Promise -> Task
-                        if (rpcObj.classId == "Promise") {
-                            if (asyncCallbacks.TryGetValue(rpcObj.objId, out var asyncEntry)) {
-                                obj = asyncEntry.complete.Task;
-                            } else {
-                                var completionSource = new TaskCompletionSource<object?>();
-                                var resultType = type == typeof(Task) ? typeof(object) : UnwrapTaskReturnType(type);
-
-                                asyncCallbacks.Add(rpcObj.objId, new AsyncCallbackEntry(completionSource, resultType));
-                                
-                                var genericMethod = GetType().GetMethod("CreateTaskResultConverter", BindingFlags.NonPublic | BindingFlags.Static);
-                                var specifiedMethod = genericMethod.MakeGenericMethod(resultType);
-                                var converter = specifiedMethod.Invoke(null, Array.Empty<object>());
-
-                                var methods = typeof(Task<object?>).GetMethods()
-                                    .Where(mi => mi.Name == "ContinueWith" && mi.IsGenericMethodDefinition && mi.GetParameters().Length == 1).ToArray();
-
-                                obj = methods[0].MakeGenericMethod(resultType).Invoke(completionSource.Task, new [] { converter });
-                            }
-                            objType = obj.GetType();
-                        }
-
-                        // special cases for _rpc_type=object/function
-                        if (proxyClassRegistry.ByObj.TryGetValue(type, out var proxyClassEntry)) {
-                            var factory = proxyClassEntry.value;
-                            if (factory is null) {
-                                factory = GetProxyClassFactory(proxyClassEntry.id, replyChannel);
-                                proxyClassRegistry.Add(proxyClassEntry.id, proxyClassEntry.obj, factory);
-                            }
-                            obj = factory(rpcObj.objId);
-                            objType = obj.GetType();
-                        }
-                    }
-                }
-
-                // custom deserializers
-                var deserializer = GetDeserializer(type);
-                if (deserializer is not null) {
-                    obj = deserializer(obj, type);
-                }
-
-                if (!objType.IsAssignableTo(type)) {
-                    obj = Convert.ChangeType(obj, type);
-                }
-            }
-            
-            // recursive call for Dictionary
-            if (obj is IDictionary<string, object?> dict) {
-                foreach (var (key, value) in dict) {
-                    dict[key] = ProcessAfterDeserialization(value, replyChannel);
-                }
-            }
-        }
-        return obj;
-    }
-
-
-    private object?[] ProcessArgumentsAfterDeserialization(object?[] args, IRPCChannel replyChannel, Type[] parameterTypes) {
-        if (args.Length != parameterTypes.Length) {
-            throw new ArgumentException($"Method argument number mismatch. Expected {parameterTypes.Length} and got {args.Length}.");
-        }
-
-        for (var i = 0; i < args.Length; i++) {
-            var arg = args[i];
-            var type = parameterTypes[i];
-            args[i] = ProcessAfterDeserialization(args[i], replyChannel, parameterTypes[i]);
-        }
-
-        return args;
-    }
-
-    private bool ProcessPropertyValuesBeforeSerialization(object obj, PropertyInfo[] properties, Dictionary<string, object?> propertyBag, IRPCChannel replyChannel) {
-        var needToConvert = false;
-        foreach (var propInfo in properties) {
-            if (!propInfo.CanRead || propInfo.GetIndexParameters().Length > 0) continue;
-
-            var value = propInfo.GetValue(obj);
-            var newValue = ProcessBeforeSerialization(value, replyChannel);
-            propertyBag.Add(propInfo.Name, newValue);
-
-            if (value is null ? newValue is not null : !value.Equals(newValue)) {
-                needToConvert = true;
-            }
-        }
-        return needToConvert;
-    }
 
     private void SendResultOnTaskCompletion(Task task, Action<bool, object?> sendResult, IRPCChannel? replyChannel) {
         if (task.GetType().IsGenericType) {
@@ -460,7 +352,7 @@ public class SuperRPC
                 task.ContinueWith(t => {
                     sendResult(!t.IsFaulted,
                         t.IsFaulted ? t.Exception?.ToString() :
-                        ProcessBeforeSerialization(((dynamic)t).Result, replyChannel)
+                        ProcessValueBeforeSerialization(((dynamic)t).Result, replyChannel)
                     );
                 });
             });
@@ -471,7 +363,32 @@ public class SuperRPC
         }
     }
 
-    private object? ProcessBeforeSerialization(object? obj, IRPCChannel? replyChannel) {
+    private bool ProcessPropertyValuesBeforeSerialization(object obj, PropertyInfo[] properties, Dictionary<string, object?> propertyBag, IRPCChannel replyChannel) {
+        var needToConvert = false;
+        foreach (var propInfo in properties) {
+            if (!propInfo.CanRead || propInfo.GetIndexParameters().Length > 0) continue;
+
+            var value = propInfo.GetValue(obj);
+            var newValue = ProcessValueBeforeSerialization(value, replyChannel);
+            propertyBag.Add(propInfo.Name, newValue);
+
+            if (value is null ? newValue is not null : !value.Equals(newValue)) {
+                needToConvert = true;
+            }
+        }
+        return needToConvert;
+    }
+
+    private object?[] ProcessArgumentsBeforeSerialization(object?[] args/* , Type[] parameterTypes */, FunctionDescriptor? func, IRPCChannel? replyChannel) {
+        for (var i = 0; i < args.Length; i++) {
+            var arg = args[i];
+            // var type = parameterTypes[i];
+            args[i] = ProcessValueBeforeSerialization(arg, replyChannel);
+        }
+        return args;
+    }
+
+    private object? ProcessValueBeforeSerialization(object? obj, IRPCChannel? replyChannel) {
         if (obj is null) return obj;
 
         var objType = obj.GetType();
@@ -525,14 +442,108 @@ public class SuperRPC
         return obj;
     }
 
-    private object?[] ProcessArgumentsBeforeSerialization(object?[] args/* , Type[] parameterTypes */, FunctionDescriptor? func, IRPCChannel? replyChannel) {
+    private object?[] ProcessArgumentsAfterDeserialization(object?[] args, IRPCChannel replyChannel, Type[] parameterTypes, ArgumentDescriptor[]? argumentDescriptors) {
+        if (args.Length != parameterTypes.Length) {
+            throw new ArgumentException($"Method argument number mismatch. Expected {parameterTypes.Length} and got {args.Length}.");
+        }
+
         for (var i = 0; i < args.Length; i++) {
             var arg = args[i];
-            // var type = parameterTypes[i];
-            args[i] = ProcessBeforeSerialization(arg, replyChannel);
+            var descr = argumentDescriptors?.FirstOrDefault(ad => ad.idx == i || ad.idx is null);
+            var type = parameterTypes[i];
+            args[i] = ProcessValueAfterDeserialization(args[i], replyChannel, parameterTypes[i], descr);
         }
+
         return args;
     }
+
+    private Func<object, Type, object>? GetDeserializer(Type type) {
+        if (deserializers.TryGetValue(type, out var deserializer)) {
+            return deserializer;
+        } else if (deserializers.TryGetValue(typeof(object), out deserializer)) {
+            return deserializer;
+        }
+        return null;
+    }
+
+    private static Func<Task<object?>, TResult> CreateTaskResultConverter<TResult>() {
+        return (Task<object?> task) => (TResult)task.Result;
+    }
+
+    private object? ProcessValueAfterDeserialization(object? obj, IRPCChannel replyChannel, Type? type = null, ArgumentDescriptor? argDescriptor = null) {
+        if (obj is null) {
+            if (type?.IsValueType == true) {
+                throw new ArgumentException("null cannot be passed as a value type");
+            }
+        } else {
+            if (type is not null) {
+                var objType = obj.GetType();
+
+                var rpcObjDeserializer = GetDeserializer(typeof(RPC_Object));
+                if (rpcObjDeserializer is not null) {
+                    var rpcObj = rpcObjDeserializer(obj, typeof(RPC_Object)) as RPC_Object;
+                    if (rpcObj is not null) {
+                        if (rpcObj._rpc_type == "function") {
+                            var proxyFunc = CreateProxyFunctionFromDelegateType(type, rpcObj.objId, replyChannel, argDescriptor ?? new FunctionDescriptor());
+                            obj = proxyFunc;
+                            objType = obj.GetType();
+                        }
+                        // Promise -> Task
+                        if (rpcObj.classId == "Promise") {
+                            if (asyncCallbacks.TryGetValue(rpcObj.objId, out var asyncEntry)) {
+                                obj = asyncEntry.complete.Task;
+                            } else {
+                                var completionSource = new TaskCompletionSource<object?>();
+                                var resultType = type == typeof(Task) ? typeof(object) : UnwrapTaskReturnType(type);
+
+                                asyncCallbacks.Add(rpcObj.objId, new AsyncCallbackEntry(completionSource, resultType));
+                                
+                                var genericMethod = GetType().GetMethod("CreateTaskResultConverter", BindingFlags.NonPublic | BindingFlags.Static);
+                                var specifiedMethod = genericMethod.MakeGenericMethod(resultType);
+                                var converter = specifiedMethod.Invoke(null, Array.Empty<object>());
+
+                                var methods = typeof(Task<object?>).GetMethods()
+                                    .Where(mi => mi.Name == "ContinueWith" && mi.IsGenericMethodDefinition && mi.GetParameters().Length == 1).ToArray();
+
+                                obj = methods[0].MakeGenericMethod(resultType).Invoke(completionSource.Task, new [] { converter });
+                            }
+                            objType = obj.GetType();
+                        }
+
+                        // special cases for _rpc_type=object/function
+                        if (proxyClassRegistry.ByObj.TryGetValue(type, out var proxyClassEntry)) {
+                            var factory = proxyClassEntry.value;
+                            if (factory is null) {
+                                factory = GetProxyClassFactory(proxyClassEntry.id, replyChannel);
+                                proxyClassRegistry.Add(proxyClassEntry.id, proxyClassEntry.obj, factory);
+                            }
+                            obj = factory(rpcObj.objId);
+                            objType = obj.GetType();
+                        }
+                    }
+                }
+
+                // custom deserializers
+                var deserializer = GetDeserializer(type);
+                if (deserializer is not null) {
+                    obj = deserializer(obj, type);
+                }
+
+                if (!objType.IsAssignableTo(type)) {
+                    obj = Convert.ChangeType(obj, type);
+                }
+            }
+            
+            // recursive call for Dictionary
+            if (obj is IDictionary<string, object?> dict) {
+                foreach (var (key, value) in dict) {
+                    dict[key] = ProcessValueAfterDeserialization(value, replyChannel);
+                }
+            }
+        }
+        return obj;
+    }
+
 
     private Delegate CreateVoidProxyFunction<TReturn>(string? objId, FunctionDescriptor? func, string action, IRPCChannel? replyChannel) {
 
@@ -566,7 +577,7 @@ public class SuperRPC
             if (!response.success) {
                 throw new ArgumentException(response.result?.ToString());
             }
-            return (TReturn?)ProcessAfterDeserialization(response.result, replyChannel);
+            return (TReturn?)ProcessValueAfterDeserialization(response.result, replyChannel);
         }
 
         return ProxyFunction;
@@ -687,26 +698,19 @@ public class SuperRPC
         }
 
         // put it in registry
-        return (T)CreateProxyFunctionDelegate<T>(objId, channel, descriptor);
+        return (T)CreateProxyFunctionFromDelegateType(typeof(T), objId, channel, descriptor);
     }
         
-    private Delegate CreateProxyFunctionDelegate<T>(string objId, IRPCChannel channel, FunctionDescriptor descriptor) where T: Delegate {
-        var method = typeof(T).GetMethod("Invoke") ?? typeof(T).GetMethod("DynamicInvoke");
+    private Delegate CreateProxyFunctionFromDelegateType(Type delegateType, string objId, IRPCChannel? channel, FunctionDescriptor descriptor) {
+        var method = delegateType.GetMethod("Invoke");
         if (method is null) {
-            throw new ArgumentException($"Given generic type is not a Delegate ({typeof(T).FullName})");
+            throw new ArgumentException($"Given generic type is not a generic delegate ({delegateType.FullName})");
         }
 
         var funcParamTypes = method.GetParameters().Select(pi => pi.ParameterType).ToArray();
         var proxyFunc = CreateProxyFunctionWithReturnType(UnwrapTaskReturnType(method.ReturnType), objId, descriptor, "fn_call", channel);
         
         return CreateDynamicWrapperMethod(objId + "_" + descriptor.Name, proxyFunc, funcParamTypes, method.ReturnType);
-    }
-
-    private Delegate CreateProxyFunctionWithDelegateType(Type delegateType, string objId, IRPCChannel channel, FunctionDescriptor descriptor) {
-        return (Delegate)(typeof(SuperRPC))
-            .GetMethod("CreateProxyFunctionDelegate", BindingFlags.NonPublic | BindingFlags.Instance)
-            .MakeGenericMethod(delegateType)
-            .Invoke(this, new object[] { objId, channel, descriptor });
     }
 
     public T GetProxyObject<T>(string objId, IRPCChannel? channel = null) {
