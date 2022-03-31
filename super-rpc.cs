@@ -13,7 +13,7 @@ using ClassDescriptors = System.Collections.Generic.Dictionary<string, SuperRPC.
 
 namespace SuperRPC;
 
-record AsyncCallbackEntry(TaskCompletionSource<object?> complete, Type? type);
+record AsyncCallbackEntry(Task task, Action<object?> complete, Action<Exception> fail, Type? type);
 
 public class SuperRPC
 {
@@ -113,9 +113,9 @@ public class SuperRPC
                     if (asyncCallbacks.TryGetValue(fnResult.callId, out var entry)) {
                         if (fnResult.success) {
                             var result = ProcessValueAfterDeserialization(fnResult.result, replyChannel, entry.type);
-                            entry.complete.SetResult(result);
+                            entry.complete(result);
                         } else {
-                            entry.complete.SetException(new ArgumentException(fnResult.result?.ToString()));
+                            entry.fail(new ArgumentException(fnResult.result?.ToString()));
                         }
                         asyncCallbacks.Remove(fnResult.callId);
                     }
@@ -466,8 +466,17 @@ public class SuperRPC
         return null;
     }
 
-    private static Func<Task<object?>, TResult> CreateTaskResultConverter<TResult>() {
-        return (Task<object?> task) => (TResult)task.Result;
+    private static Action<object?> CreateSetResultDelegate<T>(dynamic source) {
+        return (object? result) => source.SetResult((T)result);
+    }
+
+    private AsyncCallbackEntry CreateAsyncCallback(Type returnType) {
+        dynamic source = typeof(TaskCompletionSource<>).MakeGenericType(returnType).GetConstructor(Type.EmptyTypes).Invoke(null);
+        return new AsyncCallbackEntry(source.Task,
+            (Action<object?>)GetType().GetMethod("CreateSetResultDelegate", BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy)
+                .MakeGenericMethod(returnType).Invoke(null, new object[] { source }),
+            (Action<Exception>)((Exception ex) => source.SetException(ex)),
+            returnType);
     }
 
     private object? ProcessValueAfterDeserialization(object? obj, IRPCChannel replyChannel, Type? type = null, ArgumentDescriptor? argDescriptor = null) {
@@ -491,21 +500,12 @@ public class SuperRPC
                         // Promise -> Task
                         if (rpcObj.classId == "Promise") {
                             if (asyncCallbacks.TryGetValue(rpcObj.objId, out var asyncEntry)) {
-                                obj = asyncEntry.complete.Task;
+                                obj = asyncEntry.task;
                             } else {
-                                var completionSource = new TaskCompletionSource<object?>();
                                 var resultType = type == typeof(Task) ? typeof(object) : UnwrapTaskReturnType(type);
-
-                                asyncCallbacks.Add(rpcObj.objId, new AsyncCallbackEntry(completionSource, resultType));
-                                
-                                var genericMethod = GetType().GetMethod("CreateTaskResultConverter", BindingFlags.NonPublic | BindingFlags.Static);
-                                var specifiedMethod = genericMethod.MakeGenericMethod(resultType);
-                                var converter = specifiedMethod.Invoke(null, Array.Empty<object>());
-
-                                var methods = typeof(Task<object?>).GetMethods()
-                                    .Where(mi => mi.Name == "ContinueWith" && mi.IsGenericMethodDefinition && mi.GetParameters().Length == 1).ToArray();
-
-                                obj = methods[0].MakeGenericMethod(resultType).Invoke(completionSource.Task, new [] { converter });
+                                var asyncCallback = CreateAsyncCallback(resultType);
+                                asyncCallbacks.Add(rpcObj.objId, asyncCallback);
+                                obj = asyncCallback.task;
                             }
                             objType = obj.GetType();
                         }
@@ -597,10 +597,10 @@ public class SuperRPC
                 args = ProcessArgumentsBeforeSerialization(args, func, replyChannel)
             }, replyChannel);
             
-            var completionSource = new TaskCompletionSource<object?>();
-            asyncCallbacks.Add(callId.ToString(), new AsyncCallbackEntry(completionSource, UnwrapTaskReturnType(typeof(TReturn))));
+            var asyncCallback = CreateAsyncCallback(UnwrapTaskReturnType(typeof(TReturn)));
+            asyncCallbacks.Add(callId.ToString(), asyncCallback);
 
-            return completionSource.Task.ContinueWith(t => (TReturn?)t.Result);
+            return (Task<TReturn>)asyncCallback.task;
         }
 
         return ProxyFunction;
