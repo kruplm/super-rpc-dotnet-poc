@@ -11,6 +11,8 @@ using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Nerdbank.Streams;
+using System.Collections.Generic;
+using System.Collections;
 
 namespace SuperRPC;
 
@@ -41,7 +43,22 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
     }
 
     public static void RegisterCustomDeserializer(SuperRPC rpc) {
-        rpc.RegisterDeserializer(typeof(object), (object obj, Type targetType) => (obj is JObject jObj) ? jObj.ToObject(targetType) : obj);
+        rpc.RegisterDeserializer(typeof(object), ConvertTo);
+    }
+
+    private static object? ConvertTo(object? obj, Type targetType) {
+        if (obj is JArray array) {
+            if (targetType.IsGenericType && targetType.GetGenericTypeDefinition() == typeof(List<>)) {
+                var elementType = targetType.GetGenericArguments()[0];
+                var list = (IList)Activator.CreateInstance(targetType);
+                foreach (var item in array) {
+                    list.Add(ConvertTo(item, elementType));
+                }
+                return list;
+            }
+            return obj;
+        }
+        return (obj is JToken jToken) ? jToken.ToObject(targetType) : obj;
     }
 
     private const int ReceiveBufferSize = 4 * 1024;

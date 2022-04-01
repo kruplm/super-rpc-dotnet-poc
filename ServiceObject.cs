@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 
@@ -33,5 +34,10 @@ public class MySerive
 
     public void CallMeLater(Func<string, Task<string>> d) {
         Task.Delay(3000).ContinueWith(async t => Console.WriteLine("got back " + await d("Helloo")));
+    }
+
+    public void TakeAList(List<string> names) {
+        Console.WriteLine("names:");
+        foreach (var name in names) Console.WriteLine(name);
     }
 }

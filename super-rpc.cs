@@ -529,7 +529,7 @@ public class SuperRPC
                     obj = deserializer(obj, type);
                 }
 
-                if (!objType.IsAssignableTo(type)) {
+                if (!objType.IsAssignableTo(type) && obj is IConvertible) {
                     obj = Convert.ChangeType(obj, type);
                 }
             }

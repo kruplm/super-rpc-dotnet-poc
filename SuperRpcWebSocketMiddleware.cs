@@ -46,6 +46,7 @@ public class SuperRpcWebSocketMiddleware
         rpc.RegisterHostObject("service", service, new ObjectDescriptor {
             Functions = new FunctionDescriptor[] { 
                 "Add", "Increment", "GetName", 
+                new FunctionDescriptor { Name = "TakeAList", Returns = FunctionReturnBehavior.Void },
                 new FunctionDescriptor { Name = "LogMsgLater", Returns = FunctionReturnBehavior.Void },
                 new FunctionDescriptor { 
                     Name = "CallMeLater", Arguments = new [] {
