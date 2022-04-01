@@ -21,7 +21,9 @@ public class MySerive
 
     public int Increment() {
         Debug.WriteLine("Increment called");
-        return ++Counter;
+        ++Counter;
+        CounterChanged?.Invoke(this, Counter);
+        return Counter;
     }
 
     public Task<string> GetName() {
@@ -32,12 +34,18 @@ public class MySerive
         task.ContinueWith(t => Console.WriteLine($"Task completed: {t.Result}"));
     }
 
-    public void CallMeLater(Func<string, Task<string>> d) {
-        Task.Delay(3000).ContinueWith(async t => Console.WriteLine("got back " + await d("Helloo")));
+    public void CallMeLater(Func<string, Task<string>> callback) {
+        Task.Delay(3000).ContinueWith(async t => Console.WriteLine("got back " + await callback("Helloo")));
     }
 
     public void TakeAList(List<string> names) {
         Console.WriteLine("names:");
         foreach (var name in names) Console.WriteLine(name);
     }
+
+    public void TakeADictionary(Dictionary<string, string> dict) {
+        foreach (var (name, value) in dict) Console.WriteLine(name + " -> " + value);
+    }
+
+    public event EventHandler<int> CounterChanged;
 }

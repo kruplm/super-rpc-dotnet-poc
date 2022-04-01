@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -161,11 +162,12 @@ public class SuperRPC
                 }
                 case RPC_RpcCallMessage methodCall: {
                     var entry = GetHostObject(message.objId, hostObjectRegistry.ById);
-                    var method = (entry.obj as Type ?? entry.obj.GetType()).GetMethod(methodCall.prop);
-                    var argDescriptors = entry.value.Functions?.FirstOrDefault(fd => fd.Name == methodCall.prop)?.Arguments;
+                    var objType = entry.obj as Type ?? entry.obj.GetType();
+                    var method = objType.GetMethod(methodCall.prop);
                     if (method is null) {
                         throw new ArgumentException($"Method '{methodCall.prop}' not found on object '{methodCall.objId}'.");
                     }
+                    var argDescriptors = entry.value.Functions?.FirstOrDefault(fd => fd.Name == methodCall.prop)?.Arguments;
                     var args = ProcessArgumentsAfterDeserialization(methodCall.args, replyChannel, method.GetParameters().Select(param => param.ParameterType).ToArray(), argDescriptors);
                     result = method.Invoke(entry.obj, args);
                     break;
@@ -223,6 +225,8 @@ public class SuperRPC
                 success = success,
                 result = ProcessValueBeforeSerialization(result, replyChannel),
             }, replyChannel);
+        } else if (!success) {
+            Debug.WriteLine(result);
         }
 
         replySent.SetResult();
@@ -493,6 +497,7 @@ public class SuperRPC
                     var rpcObj = rpcObjDeserializer(obj, typeof(RPC_Object)) as RPC_Object;
                     if (rpcObj is not null) {
                         if (rpcObj._rpc_type == "function") {
+                            // TODO: get from proxy registry!?
                             var proxyFunc = CreateProxyFunctionFromDelegateType(type, rpcObj.objId, replyChannel, argDescriptor ?? new FunctionDescriptor());
                             obj = proxyFunc;
                             objType = obj.GetType();
@@ -643,9 +648,11 @@ public class SuperRPC
             .Invoke(this, new object[] { objId, descriptor, action, defaultCallType, replyChannel });
     }
 
-    private Delegate CreateDynamicWrapperMethod(string methodName, Delegate proxyFunction, Type[] paramTypes, Type returnType) {
+    private Delegate CreateDynamicWrapperMethod(string methodName, Delegate proxyFunction, Type delegateType, MethodInfo method) {
+        var paramTypes = method.GetParameters().Select(pi => pi.ParameterType).ToArray();
+
         var dmethod = new DynamicMethod(methodName,
-            returnType,
+            method.ReturnType,
             paramTypes.Prepend(proxyFunction.Target.GetType()).ToArray(),
             proxyFunction.Target.GetType(), true);
 
@@ -669,14 +676,12 @@ public class SuperRPC
         }
 
         il.Emit(OpCodes.Call, proxyFunction.Method);
-        if (returnType == typeof(void)) {
+        if (method.ReturnType == typeof(void)) {
             il.Emit(OpCodes.Pop);
         }
         il.Emit(OpCodes.Ret);
 
-        var delegateTypes = Expression.GetDelegateType(paramTypes.Append(returnType).ToArray());
-
-        return dmethod.CreateDelegate(delegateTypes, proxyFunction.Target);
+        return dmethod.CreateDelegate(delegateType, proxyFunction.Target);
     }
 
     private static bool IsTaskType(Type type) {
@@ -707,10 +712,9 @@ public class SuperRPC
             throw new ArgumentException($"Given generic type is not a generic delegate ({delegateType.FullName})");
         }
 
-        var funcParamTypes = method.GetParameters().Select(pi => pi.ParameterType).ToArray();
         var proxyFunc = CreateProxyFunctionWithReturnType(UnwrapTaskReturnType(method.ReturnType), objId, descriptor, "fn_call", channel);
         
-        return CreateDynamicWrapperMethod(objId + "_" + descriptor.Name, proxyFunc, funcParamTypes, method.ReturnType);
+        return CreateDynamicWrapperMethod(objId + "_" + descriptor.Name, proxyFunc, delegateType, method);
     }
 
     public T GetProxyObject<T>(string objId, IRPCChannel? channel = null) {
@@ -784,7 +788,50 @@ public class SuperRPC
         ctorIL.Emit(OpCodes.Ret);
 
         var proxyFunctions = new List<Delegate>();
-        var propertyMethods = new List<string>();
+        var skipMethods = new List<string>();
+
+        // Events
+        var events = ifType.GetEvents(BindingFlags.Public | BindingFlags.Instance);
+
+        foreach (var eventInfo in events) {
+            var addMethodName = "add_" + eventInfo.Name;
+            var removeMethodName = "remove_" + eventInfo.Name;
+
+            skipMethods.Add(addMethodName);
+            skipMethods.Add(removeMethodName);
+
+            var eventBuilder = typeBuilder.DefineEvent(eventInfo.Name, EventAttributes.None, eventInfo.EventHandlerType);
+
+            // add method
+            var addMethodParams = new [] { eventInfo.EventHandlerType };
+            var addMethodBuilder = typeBuilder.DefineMethod(addMethodName, 
+                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot,
+                CallingConventions.Standard | CallingConventions.HasThis, typeof(void), addMethodParams);
+            
+            eventBuilder.SetAddOnMethod(addMethodBuilder);
+
+            var addDescriptor = descriptor?.Functions?.FirstOrDefault(func => func.Name == addMethodName);
+
+            var addIL = addMethodBuilder.GetILGenerator();
+            GenerateILMethod(addIL, objIdField, proxyFunctionsField, proxyFunctions.Count, addMethodParams, typeof(void));
+            proxyFunctions.Add(CreateProxyFunctionWithReturnType(typeof(void), null,
+                addDescriptor ?? new FunctionDescriptor { Name = addMethodName, Returns = FunctionReturnBehavior.Void }, "method_call", channel));
+
+            // remove method
+            var removeMethodParams = new [] { eventInfo.EventHandlerType };
+            var removeMethodBuilder = typeBuilder.DefineMethod(removeMethodName, 
+                MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot,
+                CallingConventions.Standard | CallingConventions.HasThis, typeof(void), removeMethodParams);
+            
+            eventBuilder.SetRemoveOnMethod(removeMethodBuilder);
+
+            var removeDescriptor = descriptor?.Functions?.FirstOrDefault(func => func.Name == removeMethodName);
+
+            var removeIL = removeMethodBuilder.GetILGenerator();
+            GenerateILMethod(removeIL, objIdField, proxyFunctionsField, proxyFunctions.Count, removeMethodParams, typeof(void));
+            proxyFunctions.Add(CreateProxyFunctionWithReturnType(typeof(void), null,
+                removeDescriptor ?? new FunctionDescriptor { Name = removeMethodName /*TODO: args? */ }, "method_call", channel));
+        }
 
         // Properties
         var properties = ifType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
@@ -813,7 +860,7 @@ public class SuperRPC
             
             // Define the "get" accessor method
             var getterName = "get_" + propertyInfo.Name;
-            propertyMethods.Add(getterName);
+            skipMethods.Add(getterName);
             var getPropMthdBldr = typeBuilder.DefineMethod(getterName,
                 getSetAttr,
                 propertyInfo.PropertyType,
@@ -826,7 +873,7 @@ public class SuperRPC
             if (!isGetOnly) {
                 // Define the "set" accessor method 
                 var setterName = "set_" + propertyInfo.Name;
-                propertyMethods.Add(setterName);
+                skipMethods.Add(setterName);
                 var setPropMthdBldr = typeBuilder.DefineMethod(setterName,
                     getSetAttr,
                     null,
@@ -838,7 +885,7 @@ public class SuperRPC
 
             if (isProxied) {
                 GenerateILMethod(getterIL, objIdField, proxyFunctionsField, proxyFunctions.Count, Type.EmptyTypes, propertyInfo.PropertyType);
-                proxyFunctions.Add(CreateProxyFunctionWithReturnType(UnwrapTaskReturnType(propertyInfo.PropertyType), null, 
+                proxyFunctions.Add(CreateProxyFunctionWithReturnType(UnwrapTaskReturnType(propertyInfo.PropertyType), null,
                     propDescriptor?.Get ?? new FunctionDescriptor { Name = propDescriptor.Name }, "prop_get", channel));
 
                 if (!isGetOnly) {
@@ -867,7 +914,7 @@ public class SuperRPC
         var methods = ifType.GetMethods(BindingFlags.Public | BindingFlags.Instance);
 
         foreach (var methodInfo in methods) {
-            if (propertyMethods.Contains(methodInfo.Name)) continue;
+            if (skipMethods.Contains(methodInfo.Name)) continue;
 
             var funcDescriptor = descriptor?.Functions?.FirstOrDefault(desc => desc.Name == methodInfo.Name);    // TODO: camelCase <-> PascalCase ?
             if (funcDescriptor is null) {

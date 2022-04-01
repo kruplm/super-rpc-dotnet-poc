@@ -27,6 +27,7 @@ public class SuperRpcWebSocketMiddleware
     public interface ITestProxyService {
         Task<int> Counter { get; set; }
         void Increment();
+        event Action<int> CounterChanged;
     }
 
     public SuperRpcWebSocketMiddleware(RequestDelegate next)
@@ -44,12 +45,20 @@ public class SuperRpcWebSocketMiddleware
         // register host objects here
 
         rpc.RegisterHostObject("service", service, new ObjectDescriptor {
-            Functions = new FunctionDescriptor[] { 
-                "Add", "Increment", "GetName", 
+            Functions = new FunctionDescriptor[] {
+                "Add", "Increment", "GetName",
+                new FunctionDescriptor { Name = "add_CounterChanged", Returns = FunctionReturnBehavior.Void,
+                    Arguments = new [] { new ArgumentDescriptor { idx = 0, Returns = FunctionReturnBehavior.Void } }
+                },
+                new FunctionDescriptor { Name = "remove_CounterChanged", Returns = FunctionReturnBehavior.Void,
+                    Arguments = new [] { new ArgumentDescriptor { idx = 0, Returns = FunctionReturnBehavior.Void } }
+                },
                 new FunctionDescriptor { Name = "TakeAList", Returns = FunctionReturnBehavior.Void },
+                new FunctionDescriptor { Name = "TakeADictionary", Returns = FunctionReturnBehavior.Void },
                 new FunctionDescriptor { Name = "LogMsgLater", Returns = FunctionReturnBehavior.Void },
-                new FunctionDescriptor { 
-                    Name = "CallMeLater", Arguments = new [] {
+                new FunctionDescriptor {
+                    Name = "CallMeLater",
+                    Arguments = new [] {
                         new ArgumentDescriptor { idx = 0, Returns = FunctionReturnBehavior.Async }
                     } 
                 }
@@ -61,6 +70,7 @@ public class SuperRpcWebSocketMiddleware
 
         rpc.RegisterHostFunction("testDTO", (CustomDTO x) => Debug.WriteLine($"Custom DTO name: {x.Name}"));
 
+        rpc.RegisterProxyClass<ITestProxyService>("TestService");
         rpc.RegisterHostFunction("testJsHost", () => {
             // var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc", (IRPCChannel?)rpc.CurrentContext);
             // var rs = jsFunc("hello", "world");
@@ -78,15 +88,19 @@ public class SuperRpcWebSocketMiddleware
             //     jsService.Result.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: {0}", t.Result));
             // });
 
-            rpc.RegisterProxyClass<ITestProxyService>("TestService");
 
             var getTestService = rpc.GetProxyFunction<Func<Task<ITestProxyService>>>("getTestService", (IRPCChannel?)rpc.CurrentContext);
-            getTestService().ContinueWith(async (testService) => {
-                var service = testService.Result;
+            getTestService().ContinueWith(async (testServiceTask) => {
+                var service = testServiceTask.Result;
+                var listener = (int counterValue) => {
+                    System.Console.WriteLine($"CounterChanged: {counterValue}");
+                };
+                service.CounterChanged += listener;
                 Console.WriteLine($"TestService counter={await service.Counter}");
                 service.Increment();
                 Console.WriteLine($"TestService counter={await service.Counter}");
                 service.Counter = Task.FromResult(8);
+                service.CounterChanged -= listener;
             });
         });
 

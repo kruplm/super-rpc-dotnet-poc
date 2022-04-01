@@ -48,11 +48,31 @@ ws.addEventListener('open', async () => {
         Counter = 0;
         Increment() {
             this.Counter++;
+
+            for (const listener of this.listeners) {
+                listener(this.Counter);
+            }
+        }
+
+        listeners = [];
+
+        add_CounterChanged(listener) {
+            this.listeners.push(listener);
+        }
+        remove_CounterChanged(listener) {
+            const idx = this.listeners.indexOf(listener);
+            if (idx >= 0) {
+                this.listeners.splice(idx, 1);
+            }
         }
     }
     rpc.registerHostClass('TestService', TestService, {
         instance: {
-            functions:[ { name: 'Increment', returns: 'void' }],
+            functions:[
+                { name: 'Increment', returns: 'void' },
+                { name: 'add_CounterChanged', returns: 'void' },
+                { name: 'remove_CounterChanged', returns: 'void' },
+            ],
             proxiedProperties: ['Counter']
         }
     });
