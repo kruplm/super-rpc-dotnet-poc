@@ -43,6 +43,11 @@ public class MySerive
         foreach (var name in names) Console.WriteLine(name);
     }
 
+    public void TakeArray(int[] nums) {
+        Console.WriteLine("names:");
+        foreach (var num in nums) Console.WriteLine(num);
+    }
+
     public void TakeADictionary(Dictionary<string, string> dict) {
         foreach (var (name, value) in dict) Console.WriteLine(name + " -> " + value);
     }

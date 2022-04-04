@@ -54,6 +54,7 @@ public class SuperRpcWebSocketMiddleware
                     Arguments = new [] { new ArgumentDescriptor { idx = 0, Returns = FunctionReturnBehavior.Void } }
                 },
                 new FunctionDescriptor { Name = "TakeAList", Returns = FunctionReturnBehavior.Void },
+                new FunctionDescriptor { Name = "TakeArray", Returns = FunctionReturnBehavior.Void },
                 new FunctionDescriptor { Name = "TakeADictionary", Returns = FunctionReturnBehavior.Void },
                 new FunctionDescriptor { Name = "LogMsgLater", Returns = FunctionReturnBehavior.Void },
                 new FunctionDescriptor {

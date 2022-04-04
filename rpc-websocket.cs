@@ -56,6 +56,14 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
                 }
                 return list;
             }
+            if (targetType.IsArray) {
+                var elementType = targetType.GetElementType();
+                var arr = (IList)Activator.CreateInstance(targetType, array.Count);
+                for (var i = 0; i < array.Count; i++) {
+                    arr[i] = ConvertTo(array[i], elementType);
+                }
+                return arr;
+            }
             return obj;
         }
         return (obj is JToken jToken) ? jToken.ToObject(targetType) : obj;
