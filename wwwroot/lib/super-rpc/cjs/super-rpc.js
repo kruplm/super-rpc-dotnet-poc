@@ -3,7 +3,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SuperRPC = void 0;
 const proxy_object_registry_1 = require("./proxy-object-registry");
 const rpc_descriptor_types_1 = require("./rpc-descriptor-types");
-const rpc_descriptor_types_2 = require("./rpc-descriptor-types");
 const hostObjectId = Symbol('hostObjectId');
 const proxyObjectId = Symbol('proxyObjectId');
 const classIdSym = Symbol('classId');
@@ -202,7 +201,7 @@ class SuperRPC {
                     break;
                 }
                 case 'prop_set': {
-                    const descr = (0, rpc_descriptor_types_2.getPropertyDescriptor)(descriptor, msg.prop);
+                    const descr = (0, rpc_descriptor_types_1.getPropertyDescriptor)(descriptor, msg.prop);
                     const result = this.processAfterDeserialization(msg.args[0], replyChannel, descr?.get?.arguments?.[0]);
                     // special case for when the property getter is async and the setter gets a Promise
                     if (result?.constructor === Promise && (descr?.get?.returns === 'async' || !replyChannel.sendSync)) {
@@ -215,7 +214,7 @@ class SuperRPC {
                 }
                 case 'method_call': {
                     scope = target;
-                    descriptor = (0, rpc_descriptor_types_2.getFunctionDescriptor)(descriptor, msg.prop);
+                    descriptor = (0, rpc_descriptor_types_1.getFunctionDescriptor)(descriptor, msg.prop);
                     target = target[msg.prop];
                     if (typeof target !== 'function')
                         throw new Error(`Property ${msg.prop} is not a function on object ${msg.objId}`);
@@ -290,10 +289,10 @@ class SuperRPC {
         }
     }
     serializeFunctionArgs(func, args, replyChannel) {
-        return args.map((arg, idx) => this.processBeforeSerialization(arg, replyChannel, (0, rpc_descriptor_types_2.getArgumentDescriptor)(func, idx)));
+        return args.map((arg, idx) => this.processBeforeSerialization(arg, replyChannel, (0, rpc_descriptor_types_1.getArgumentDescriptor)(func, idx)));
     }
     deserializeFunctionArgs(func, args, replyChannel) {
-        return args.map((arg, idx) => this.processAfterDeserialization(arg, replyChannel, (0, rpc_descriptor_types_2.getArgumentDescriptor)(func, idx)));
+        return args.map((arg, idx) => this.processAfterDeserialization(arg, replyChannel, (0, rpc_descriptor_types_1.getArgumentDescriptor)(func, idx)));
     }
     createVoidProxyFunction(objId, func, action, replyChannel) {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -432,7 +431,7 @@ class SuperRPC {
         // add static functions/props
         const staticDescr = descriptor.static ?? {};
         const objDescr = this.remoteObjectDescriptors?.[classId];
-        if (!(0, rpc_descriptor_types_2.isFunctionDescriptor)(objDescr)) {
+        if (!(0, rpc_descriptor_types_1.isFunctionDescriptor)(objDescr)) {
             staticDescr.props = objDescr?.props;
         }
         this.createProxyObject(classId, staticDescr, clazz);
@@ -442,15 +441,44 @@ class SuperRPC {
     createProxyObject(objId, descriptor, obj = {}) {
         Object.assign(obj, descriptor?.props);
         for (const prop of descriptor?.functions ?? []) {
-            obj[(0, rpc_descriptor_types_2.getPropName)(prop)] = this.createProxyFunction(objId, prop, 'method_call');
+            obj[(0, rpc_descriptor_types_1.getPropName)(prop)] = this.createProxyFunction(objId, prop, 'method_call');
         }
         const setterCallType = this.channel.sendSync ? 'sync' : 'void';
         for (const prop of descriptor?.proxiedProperties ?? []) {
             const descr = typeof prop === 'string' ? { name: prop } : prop;
             Object.defineProperty(obj, descr.name, {
                 get: this.createProxyFunction(objId, { ...descr.get, name: descr.name }, 'prop_get', 'sync'),
-                set: descr.readonly ? undefined : this.createProxyFunction(objId, { ...descr.set, name: descr.name }, 'prop_set', setterCallType)
+                set: descr.getOnly ? undefined : this.createProxyFunction(objId, { ...descr.set, name: descr.name }, 'prop_set', setterCallType)
             });
+        }
+        if (descriptor?.events && descriptor.events.length > 0) {
+            const eventNames = descriptor.events.map(descr => typeof descr === 'object' ? descr.name : descr);
+            const addListenerFunctions = new Map();
+            const removeListenerFunctions = new Map();
+            // eslint-disable-next-line @typescript-eslint/no-this-alias
+            const _this = this;
+            obj.addEventListener = function (eventName, listener) {
+                if (!eventNames.includes(eventName))
+                    throw new Error(`No "${eventName}" event found on object "${objId}".`);
+                let proxyFunc = addListenerFunctions.get(eventName);
+                if (!proxyFunc) {
+                    const descr = { ...(0, rpc_descriptor_types_1.getEventDescriptor)(descriptor, eventName), name: 'add_' + eventName };
+                    proxyFunc = _this.createProxyFunction(objId, descr, 'method_call');
+                    addListenerFunctions.set(eventName, proxyFunc);
+                }
+                proxyFunc(listener);
+            };
+            obj.removeEventListener = function (eventName, listener) {
+                if (!eventNames.includes(eventName))
+                    throw new Error(`No "${eventName}" event found on object "${objId}".`);
+                let proxyFunc = removeListenerFunctions.get(eventName);
+                if (!proxyFunc) {
+                    const descr = { ...(0, rpc_descriptor_types_1.getEventDescriptor)(descriptor, eventName), name: 'remove_' + eventName };
+                    proxyFunc = _this.createProxyFunction(objId, descr, 'method_call');
+                    removeListenerFunctions.set(eventName, proxyFunc);
+                }
+                proxyFunc(listener);
+            };
         }
         obj[proxyObjectId] = objId;
         return obj;
@@ -496,7 +524,7 @@ class SuperRPC {
                     const objId = this.registerLocalObj(obj, entry.descriptor.instance ?? {});
                     const props = {};
                     for (const prop of entry.descriptor.instance?.readonlyProperties ?? []) {
-                        const propName = (0, rpc_descriptor_types_2.getPropName)(prop);
+                        const propName = (0, rpc_descriptor_types_1.getPropName)(prop);
                         props[propName] = this.processBeforeSerialization(obj[propName], replyChannel);
                     }
                     return { _rpc_type: 'object', classId: entry.descriptor.classId, props, objId };
@@ -528,7 +556,7 @@ class SuperRPC {
             }
         }
         for (const key of Object.keys(obj)) {
-            obj[key] = this.processAfterDeserialization(obj[key], replyChannel, (0, rpc_descriptor_types_2.getPropertyDescriptor)(descriptor, key));
+            obj[key] = this.processAfterDeserialization(obj[key], replyChannel, (0, rpc_descriptor_types_1.getPropertyDescriptor)(descriptor, key));
         }
         return obj;
     }

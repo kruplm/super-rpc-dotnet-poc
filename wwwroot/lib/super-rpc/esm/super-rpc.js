@@ -1,6 +1,5 @@
 import { ProxyObjectRegistry, rpc_disposed } from './proxy-object-registry';
-import { processObjectDescriptor, processFunctionDescriptor } from './rpc-descriptor-types';
-import { getArgumentDescriptor, getFunctionDescriptor, getPropertyDescriptor, getPropName, isFunctionDescriptor } from './rpc-descriptor-types';
+import { getArgumentDescriptor, getEventDescriptor, getFunctionDescriptor, getPropertyDescriptor, getPropName, isFunctionDescriptor, processFunctionDescriptor, processObjectDescriptor } from './rpc-descriptor-types';
 const hostObjectId = Symbol('hostObjectId');
 const proxyObjectId = Symbol('proxyObjectId');
 const classIdSym = Symbol('classId');
@@ -446,8 +445,37 @@ export class SuperRPC {
             const descr = typeof prop === 'string' ? { name: prop } : prop;
             Object.defineProperty(obj, descr.name, {
                 get: this.createProxyFunction(objId, { ...descr.get, name: descr.name }, 'prop_get', 'sync'),
-                set: descr.readonly ? undefined : this.createProxyFunction(objId, { ...descr.set, name: descr.name }, 'prop_set', setterCallType)
+                set: descr.getOnly ? undefined : this.createProxyFunction(objId, { ...descr.set, name: descr.name }, 'prop_set', setterCallType)
             });
+        }
+        if (descriptor?.events && descriptor.events.length > 0) {
+            const eventNames = descriptor.events.map(descr => typeof descr === 'object' ? descr.name : descr);
+            const addListenerFunctions = new Map();
+            const removeListenerFunctions = new Map();
+            // eslint-disable-next-line @typescript-eslint/no-this-alias
+            const _this = this;
+            obj.addEventListener = function (eventName, listener) {
+                if (!eventNames.includes(eventName))
+                    throw new Error(`No "${eventName}" event found on object "${objId}".`);
+                let proxyFunc = addListenerFunctions.get(eventName);
+                if (!proxyFunc) {
+                    const descr = { ...getEventDescriptor(descriptor, eventName), name: 'add_' + eventName };
+                    proxyFunc = _this.createProxyFunction(objId, descr, 'method_call');
+                    addListenerFunctions.set(eventName, proxyFunc);
+                }
+                proxyFunc(listener);
+            };
+            obj.removeEventListener = function (eventName, listener) {
+                if (!eventNames.includes(eventName))
+                    throw new Error(`No "${eventName}" event found on object "${objId}".`);
+                let proxyFunc = removeListenerFunctions.get(eventName);
+                if (!proxyFunc) {
+                    const descr = { ...getEventDescriptor(descriptor, eventName), name: 'remove_' + eventName };
+                    proxyFunc = _this.createProxyFunction(objId, descr, 'method_call');
+                    removeListenerFunctions.set(eventName, proxyFunc);
+                }
+                proxyFunc(listener);
+            };
         }
         obj[proxyObjectId] = objId;
         return obj;

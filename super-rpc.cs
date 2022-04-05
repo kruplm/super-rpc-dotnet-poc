@@ -32,6 +32,9 @@ public class SuperRPC
     private ClassDescriptors? remoteClassDescriptors;
     private TaskCompletionSource<bool>? remoteDescriptorsReceived = null;
 
+    private readonly Dictionary<string, AsyncCallbackEntry> asyncCallbacks = new Dictionary<string, AsyncCallbackEntry>();
+    private int callId = 0;
+
     // private readonly proxyObjectRegistry = new ProxyObjectRegistry();
     private readonly ObjectIdDictionary<string, Type, Func<string, object>?> proxyClassRegistry = new ObjectIdDictionary<string, Type, Func<string, object>?>();
     
@@ -39,8 +42,6 @@ public class SuperRPC
     private readonly ObjectIdDictionary<string, Delegate, FunctionDescriptor> hostFunctionRegistry = new ObjectIdDictionary<string, Delegate, FunctionDescriptor>();
     private readonly ObjectIdDictionary<string, Type, ClassDescriptor> hostClassRegistry = new ObjectIdDictionary<string, Type, ClassDescriptor>();
 
-    private int callId = 0;
-    private readonly Dictionary<string, AsyncCallbackEntry> asyncCallbacks = new Dictionary<string, AsyncCallbackEntry>();
 
     public SuperRPC(Func<string> objectIdGenerator) {
         ObjectIDGenerator = objectIdGenerator;
@@ -847,7 +848,7 @@ public class SuperRPC
                 isProxied = false;
             }
 
-            var isGetOnly = propDescriptor?.ReadOnly ?? false;
+            var isGetOnly = propDescriptor?.GetOnly ?? false;
 
             var propertyBuilder = typeBuilder.DefineProperty(propertyInfo.Name,
                 PropertyAttributes.HasDefault,

@@ -5,7 +5,7 @@
  * @module
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.processObjectDescriptor = exports.processFunctionDescriptor = exports.isFunctionDescriptor = exports.getPropertyDescriptor = exports.getFunctionDescriptor = exports.getArgumentDescriptor = exports.getPropName = void 0;
+exports.processObjectDescriptor = exports.processFunctionDescriptor = exports.isFunctionDescriptor = exports.getEventDescriptor = exports.getPropertyDescriptor = exports.getFunctionDescriptor = exports.getArgumentDescriptor = exports.getPropName = void 0;
 // util functions
 function getPropName(descriptor) {
     return typeof descriptor === 'string' ? descriptor : descriptor.name || '';
@@ -23,6 +23,10 @@ function getPropertyDescriptor(descriptor, propName) {
     return descriptor?.proxiedProperties?.find(prop => typeof prop === 'object' && prop.name === propName);
 }
 exports.getPropertyDescriptor = getPropertyDescriptor;
+function getEventDescriptor(descriptor, eventName) {
+    return descriptor?.events?.find(evt => typeof evt === 'object' && evt.name === eventName);
+}
+exports.getEventDescriptor = getEventDescriptor;
 function isFunctionDescriptor(descriptor) {
     return descriptor?.type === 'function';
 }

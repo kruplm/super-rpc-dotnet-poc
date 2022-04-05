@@ -16,6 +16,9 @@ export function getFunctionDescriptor(descriptor, funcName) {
 export function getPropertyDescriptor(descriptor, propName) {
     return descriptor?.proxiedProperties?.find(prop => typeof prop === 'object' && prop.name === propName);
 }
+export function getEventDescriptor(descriptor, eventName) {
+    return descriptor?.events?.find(evt => typeof evt === 'object' && evt.name === eventName);
+}
 export function isFunctionDescriptor(descriptor) {
     return descriptor?.type === 'function';
 }

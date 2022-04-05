@@ -47,12 +47,6 @@ public class SuperRpcWebSocketMiddleware
         rpc.RegisterHostObject("service", service, new ObjectDescriptor {
             Functions = new FunctionDescriptor[] {
                 "Add", "Increment", "GetName",
-                new FunctionDescriptor { Name = "add_CounterChanged", Returns = FunctionReturnBehavior.Void,
-                    Arguments = new [] { new ArgumentDescriptor { idx = 0, Returns = FunctionReturnBehavior.Void } }
-                },
-                new FunctionDescriptor { Name = "remove_CounterChanged", Returns = FunctionReturnBehavior.Void,
-                    Arguments = new [] { new ArgumentDescriptor { idx = 0, Returns = FunctionReturnBehavior.Void } }
-                },
                 new FunctionDescriptor { Name = "TakeAList", Returns = FunctionReturnBehavior.Void },
                 new FunctionDescriptor { Name = "TakeArray", Returns = FunctionReturnBehavior.Void },
                 new FunctionDescriptor { Name = "TakeADictionary", Returns = FunctionReturnBehavior.Void },
@@ -64,7 +58,8 @@ public class SuperRpcWebSocketMiddleware
                     } 
                 }
             },
-            ProxiedProperties = new PropertyDescriptor[] { "Counter" }
+            ProxiedProperties = new PropertyDescriptor[] { "Counter" },
+            Events = new FunctionDescriptor[] { "CounterChanged" }
         });
 
         rpc.RegisterHostFunction("squareIt", (int x) => "Hey, can you see me?");

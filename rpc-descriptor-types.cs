@@ -46,13 +46,13 @@ public record PropertyDescriptor(): Descriptor("property")
     [JsonProperty("set", NullValueHandling = NullValueHandling.Ignore)]
     public FunctionDescriptor? Set;
 
-    [JsonProperty("readOnly", NullValueHandling = NullValueHandling.Ignore)]
-    public bool? ReadOnly;
+    [JsonProperty("getOnly", NullValueHandling = NullValueHandling.Ignore)]
+    public bool? GetOnly;
 
     public static implicit operator PropertyDescriptor(string name) => new PropertyDescriptor { Name = name };
 }
 
-public record ArgumentDescriptor : FunctionDescriptor 
+public record ArgumentDescriptor : FunctionDescriptor   // TODO: Func or Object ? deserialize?
 {
     public int? idx;
 }
@@ -67,6 +67,10 @@ public record ObjectDescriptor(): Descriptor("object")
 
     [JsonProperty("readonlyProperties", NullValueHandling = NullValueHandling.Ignore)]
     public string[]? ReadonlyProperties;
+
+    [JsonProperty("events", NullValueHandling = NullValueHandling.Ignore)]
+    public FunctionDescriptor[]? Events;
+
 }
 
 public record ObjectDescriptorWithProps: ObjectDescriptor {

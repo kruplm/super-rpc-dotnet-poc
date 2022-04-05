@@ -45,12 +45,12 @@ export interface PropertyDescriptor {
      * The setter of the property.
      * Default return behavior is 'sync'.
      */
-    set?: FunctionDescriptor<'void' | 'sync'>;
+    set?: FunctionDescriptor;
     /**
      * If `true` then no setter will be generated for the proxy property.
      * @default false
      */
-    readonly?: boolean;
+    getOnly?: boolean;
 }
 /**
  * Describes an argument for a function. If `idx` is not set then this
@@ -59,9 +59,9 @@ export interface PropertyDescriptor {
  * Since we only care about functions as arguments, for now, it is basically a FunctionDescriptor.
  * If the argument is not a function, do not specify a descriptor for it!
  */
-export interface ArgumentDescriptor extends FunctionDescriptor {
+export declare type ArgumentDescriptor = {
     idx?: number;
-}
+} & (FunctionDescriptor | ObjectDescriptor);
 /**
  * Describes an object that we want to expose.
  */
@@ -80,6 +80,11 @@ export interface ObjectDescriptor {
      * Since readonly property values don't change, they are sent to the other side, instead of generating a getter.
      */
     readonlyProperties?: string[];
+    /**
+     * In case of a string, it is the name of the event.
+     * In case of a `FunctionDescriptor` the `Name` property is the event name, the rest applies to the handler function.
+     */
+    events?: (string | FunctionDescriptor)[];
 }
 export interface ObjectDescriptorWithProps extends ObjectDescriptor {
     /**
@@ -126,6 +131,7 @@ export declare function getPropName(descriptor: string | {
 export declare function getArgumentDescriptor(descriptor: FunctionDescriptor, idx?: number): ArgumentDescriptor | undefined;
 export declare function getFunctionDescriptor(descriptor: ObjectDescriptor, funcName: string): FunctionDescriptor<FunctionReturnBehavior>;
 export declare function getPropertyDescriptor(descriptor?: ObjectDescriptor, propName?: string): PropertyDescriptor;
+export declare function getEventDescriptor(descriptor?: ObjectDescriptor, eventName?: string): FunctionDescriptor<FunctionReturnBehavior>;
 export declare function isFunctionDescriptor(descriptor?: Descriptor): descriptor is FunctionDescriptor;
 export declare type AnyConstructor = new (...args: any[]) => any;
 export declare type AnyFunction = ((...args: any[]) => any);
