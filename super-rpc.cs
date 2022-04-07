@@ -352,7 +352,8 @@ public class SuperRPC
 
 
     private void SendResultOnTaskCompletion(Task task, Action<bool, object?> sendResult, IRPCChannel? replyChannel) {
-        if (task.GetType().IsGenericType) {
+        var taskType = task.GetType();
+        if (taskType.IsGenericType && taskType.GetGenericArguments()[0].Name != "VoidTaskResult") {
             replySent.Task.ContinueWith(_ => {
                 task.ContinueWith(t => {
                     sendResult(!t.IsFaulted,
@@ -770,7 +771,9 @@ public class SuperRPC
         var objIdField = typeBuilder.DefineField("objId", typeof(string), FieldAttributes.Public | FieldAttributes.InitOnly);
         var proxyFunctionsField = typeBuilder.DefineField("proxyFunctions", typeof(Delegate[]), FieldAttributes.Public | FieldAttributes.InitOnly);
 
-        var constructorBuilder = typeBuilder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, new [] { typeof(string), typeof(Delegate[]) });
+        var constructorBuilder = typeBuilder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, new [] {
+            typeof(string), typeof(Delegate[]) 
+        });
         var ctorIL = constructorBuilder.GetILGenerator();
 
         // call base()
@@ -831,7 +834,7 @@ public class SuperRPC
             var removeIL = removeMethodBuilder.GetILGenerator();
             GenerateILMethod(removeIL, objIdField, proxyFunctionsField, proxyFunctions.Count, removeMethodParams, typeof(void));
             proxyFunctions.Add(CreateProxyFunctionWithReturnType(typeof(void), null,
-                removeDescriptor ?? new FunctionDescriptor { Name = removeMethodName /*TODO: args? */ }, "method_call", channel));
+                removeDescriptor ?? new FunctionDescriptor { Name = removeMethodName, Returns = FunctionReturnBehavior.Void /*TODO: args? */ }, "method_call", channel));
         }
 
         // Properties
@@ -949,10 +952,10 @@ public class SuperRPC
     }
 
     void GenerateILMethod(ILGenerator il, FieldBuilder objIdField, FieldBuilder proxyFunctionsField, int funcIdx, Type[] paramTypes, Type returnType) {
-        il.Emit(OpCodes.Ldarg_0);                   // "this" (ref of this generated class)
-        il.Emit(OpCodes.Ldfld, proxyFunctionsField);  // "this" (ref of object[] containing proxy functions)
+        il.Emit(OpCodes.Ldarg_0);                       // "this" (ref of this generated class)
+        il.Emit(OpCodes.Ldfld, proxyFunctionsField);    // "this" (ref of Delegate[] containing proxy functions)
         il.Emit(OpCodes.Ldc_I4, funcIdx);
-        il.Emit(OpCodes.Ldelem_Ref);                // proxyFunction [Delegate] is on the stack now
+        il.Emit(OpCodes.Ldelem_Ref);                    // proxyFunction [Delegate] is on the stack now
 
         il.Emit(OpCodes.Ldc_I4_2);
         il.Emit(OpCodes.Newarr, typeof(object));    //arr2 = new object[2]
