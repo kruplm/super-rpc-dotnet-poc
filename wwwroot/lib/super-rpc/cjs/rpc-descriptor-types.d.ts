@@ -59,9 +59,9 @@ export interface PropertyDescriptor {
  * Since we only care about functions as arguments, for now, it is basically a FunctionDescriptor.
  * If the argument is not a function, do not specify a descriptor for it!
  */
-export declare type ArgumentDescriptor = {
+export interface ArgumentDescriptor extends FunctionDescriptor {
     idx?: number;
-} & (FunctionDescriptor | ObjectDescriptor);
+}
 /**
  * Describes an object that we want to expose.
  */

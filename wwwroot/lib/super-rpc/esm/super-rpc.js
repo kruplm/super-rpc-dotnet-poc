@@ -192,6 +192,7 @@ export class SuperRPC {
                 throw new Error(`No object found with ID '${msg.objId}'`);
             let scope = null;
             let { descriptor, target } = entry;
+            let args;
             switch (msg.action) {
                 case 'prop_get': {
                     result = target[msg.prop];
@@ -199,7 +200,7 @@ export class SuperRPC {
                 }
                 case 'prop_set': {
                     const descr = getPropertyDescriptor(descriptor, msg.prop);
-                    const result = this.processAfterDeserialization(msg.args[0], replyChannel, descr?.get?.arguments?.[0]);
+                    const result = this.processAfterDeserialization(msg.args[0], replyChannel, descr?.set?.arguments?.[0]);
                     // special case for when the property getter is async and the setter gets a Promise
                     if (result?.constructor === Promise && (descr?.get?.returns === 'async' || !replyChannel.sendSync)) {
                         result.then((value) => target[msg.prop] = value);
@@ -212,18 +213,31 @@ export class SuperRPC {
                 case 'method_call': {
                     scope = target;
                     descriptor = getFunctionDescriptor(descriptor, msg.prop);
-                    target = target[msg.prop];
+                    if (!descriptor && !target[msg.prop]) {
+                        // try if it's an event (add_EvtName or remove_EvtName)
+                        const [addOrRemove, eventName] = msg.prop.split('_');
+                        if (eventName && (addOrRemove === 'add' || addOrRemove === 'remove') &&
+                            typeof (target = target[addOrRemove + 'EventListener']) === 'function') {
+                            const evtDescriptor = getEventDescriptor(descriptor, eventName);
+                            args = [eventName, ...this.deserializeFunctionArgs(evtDescriptor, msg.args, replyChannel)];
+                        }
+                    }
+                    else {
+                        target = target[msg.prop];
+                    }
                     if (typeof target !== 'function')
                         throw new Error(`Property ${msg.prop} is not a function on object ${msg.objId}`);
                     // NO break here!
                 }
                 // eslint-disable-next-line no-fallthrough
                 case 'fn_call': {
-                    result = target.apply(scope, this.deserializeFunctionArgs(descriptor, msg.args, replyChannel));
+                    args ??= this.deserializeFunctionArgs(descriptor, msg.args, replyChannel);
+                    result = target.apply(scope, args);
                     break;
                 }
                 case 'ctor_call': {
-                    result = new target(...this.deserializeFunctionArgs(descriptor, msg.args, replyChannel));
+                    args = this.deserializeFunctionArgs(descriptor, msg.args, replyChannel);
+                    result = new target(...args);
                     break;
                 }
             }

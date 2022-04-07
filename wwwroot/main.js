@@ -56,13 +56,17 @@ ws.addEventListener('open', async () => {
 
         listeners = [];
 
-        add_CounterChanged(listener) {
-            this.listeners.push(listener);
+        addEventListener(event, listener) {
+            if (event === 'CounterChanged') {
+                this.listeners.push(listener);
+            }
         }
-        remove_CounterChanged(listener) {
-            const idx = this.listeners.indexOf(listener);
-            if (idx >= 0) {
-                this.listeners.splice(idx, 1);
+        removeEventListener(event, listener) {
+            if (event === 'CounterChanged') {
+                const idx = this.listeners.indexOf(listener);
+                if (idx >= 0) {
+                    this.listeners.splice(idx, 1);
+                }
             }
         }
     }
@@ -70,10 +74,9 @@ ws.addEventListener('open', async () => {
         instance: {
             functions:[
                 { name: 'Increment', returns: 'void' },
-                { name: 'add_CounterChanged', returns: 'void' },
-                { name: 'remove_CounterChanged', returns: 'void' },
             ],
-            proxiedProperties: ['Counter']
+            proxiedProperties: ['Counter'],
+            events: ['CounterChanged']
         }
     });
 
