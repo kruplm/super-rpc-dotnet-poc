@@ -54,7 +54,7 @@ public class SuperRpcWebSocketMiddleware
                 new FunctionDescriptor {
                     Name = "CallMeLater",
                     Arguments = new [] {
-                        new ArgumentDescriptor { idx = 0, Returns = FunctionReturnBehavior.Async }
+                        new ArgumentDescriptor { idx = 0, Returns = FunctionReturnBehavior.Void }
                     } 
                 }
             },
@@ -85,7 +85,7 @@ public class SuperRpcWebSocketMiddleware
             // });
 
 
-            var getTestService = rpc.GetProxyFunction<Func<Task<ITestProxyService>>>("getTestService", (IRPCChannel?)rpc.CurrentContext);
+            var getTestService = rpc.GetProxyFunction<Func<Task<ITestProxyService>>>("getTestService", rpc.CurrentContext);
             getTestService().ContinueWith(async (testServiceTask) => {
                 var service = testServiceTask.Result;
                 var listener = (int counterValue) => {

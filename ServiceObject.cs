@@ -34,8 +34,10 @@ public class MySerive
         task.ContinueWith(t => Console.WriteLine($"Task completed: {t.Result}"));
     }
 
-    public void CallMeLater(Func<string, Task<string>> callback) {
-        Task.Delay(3000).ContinueWith(async t => Console.WriteLine("got back " + await callback("Helloo")));
+    public void CallMeLater(Action<string> callback) {
+        Task.Delay(3000).ContinueWith(t => {
+            callback("Helloo");
+        });
     }
 
     public void TakeAList(List<string> names) {

@@ -100,5 +100,7 @@ public record RPC_AsyncCallbackCallMessage: RPC_FnCallMessageBase {
     public RPC_AsyncCallbackCallMessage() { action = "async_fn"; }
 }
 
-public record RPC_Function(string objId, string _rpc_type = "function");
-public record RPC_Object(string objId, Dictionary<string, object?>? props, string? classId = null): RPC_Function(objId, "object");
+public record RPC_BaseObj(string objId, string _rpc_type);
+public record RPC_HostObject(string objId): RPC_BaseObj(objId, "hostobject");
+public record RPC_HostFunction(string objId): RPC_BaseObj(objId, "hostfunction");
+public record RPC_Object(string objId, Dictionary<string, object?>? props, string? classId = null): RPC_BaseObj(objId, "object");

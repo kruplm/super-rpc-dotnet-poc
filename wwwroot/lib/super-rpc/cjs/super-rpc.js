@@ -217,7 +217,8 @@ class SuperRPC {
                     scope = target;
                     descriptor = (0, rpc_descriptor_types_1.getFunctionDescriptor)(descriptor, msg.prop);
                     if (!descriptor && !target[msg.prop]) {
-                        // try if it's an event (add_EvtName or remove_EvtName)
+                        // check if it's an event (add_EvtName or remove_EvtName)
+                        // map it to addEventListener/removeEventListener(eventName, listener)
                         const [addOrRemove, eventName] = msg.prop.split('_');
                         if (eventName && (addOrRemove === 'add' || addOrRemove === 'remove') &&
                             typeof (target = target[addOrRemove + 'EventListener']) === 'function') {
@@ -288,6 +289,7 @@ class SuperRPC {
                 }
                 case 'obj_died': {
                     this.hostObjectRegistry.delete(message.objId);
+                    this.hostFunctionRegistry.delete(message.objId);
                     break;
                 }
                 case 'fn_reply': {
@@ -517,7 +519,7 @@ class SuperRPC {
     }
     processBeforeSerialization(obj, replyChannel, descriptor) {
         if (obj?.[proxyObjectId]) {
-            return { _rpc_type: 'hostObject', objId: obj[proxyObjectId] };
+            return { _rpc_type: 'host' + (typeof obj), objId: obj[proxyObjectId] };
         }
         switch (typeof obj) {
             case 'object': {
@@ -565,8 +567,11 @@ class SuperRPC {
             case 'function': {
                 return this.getOrCreateProxyFunction(obj.objId, replyChannel, descriptor);
             }
-            case 'hostObject': {
+            case 'hostobject': {
                 return this.hostObjectRegistry.get(obj.objId)?.target;
+            }
+            case 'hostfunction': {
+                return this.hostFunctionRegistry.get(obj.objId)?.target;
             }
         }
         for (const key of Object.keys(obj)) {
