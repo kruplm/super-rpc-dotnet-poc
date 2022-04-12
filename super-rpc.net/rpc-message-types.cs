@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
 
-using ObjectDescriptors = System.Collections.Generic.Dictionary<string, SuperRPC.ObjectDescriptor>;
-using FunctionDescriptors = System.Collections.Generic.Dictionary<string, SuperRPC.FunctionDescriptor>;
-using ClassDescriptors = System.Collections.Generic.Dictionary<string, SuperRPC.ClassDescriptor>;
-using Newtonsoft.Json;
+using ObjectDescriptors = System.Collections.Generic.Dictionary<string, Super.RPC.ObjectDescriptor>;
+using FunctionDescriptors = System.Collections.Generic.Dictionary<string, Super.RPC.FunctionDescriptor>;
+using ClassDescriptors = System.Collections.Generic.Dictionary<string, Super.RPC.ClassDescriptor>;
 
-namespace SuperRPC;
+namespace Super.RPC;
 
 public abstract record RPC_Message {
     public string rpc_marker = "srpc";
@@ -45,7 +44,6 @@ public record RPC_AnyCallTypeFnCallMessage: RPC_FnCallMessageBase {
     public FunctionReturnBehavior callType;
     public string? callId;
     // this should be in *some* of the derived records
-    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
     public string? prop;
 }
 

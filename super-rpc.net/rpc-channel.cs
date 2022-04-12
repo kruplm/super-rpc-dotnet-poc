@@ -1,5 +1,5 @@
 using System;
-namespace SuperRPC;
+namespace Super.RPC;
 
 public interface IRPCChannel {}
 public interface IRPCSendSyncChannel: IRPCChannel {

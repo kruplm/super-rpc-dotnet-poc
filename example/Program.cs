@@ -1,9 +1,6 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 
-namespace SuperRPC;
+namespace Super.RPC.Example;
 
 public class Program
 {

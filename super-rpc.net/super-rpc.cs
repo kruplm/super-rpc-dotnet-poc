@@ -7,11 +7,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-using ObjectDescriptors = System.Collections.Generic.Dictionary<string, SuperRPC.ObjectDescriptor>;
-using FunctionDescriptors = System.Collections.Generic.Dictionary<string, SuperRPC.FunctionDescriptor>;
-using ClassDescriptors = System.Collections.Generic.Dictionary<string, SuperRPC.ClassDescriptor>;
+using ObjectDescriptors = System.Collections.Generic.Dictionary<string, Super.RPC.ObjectDescriptor>;
+using FunctionDescriptors = System.Collections.Generic.Dictionary<string, Super.RPC.FunctionDescriptor>;
+using ClassDescriptors = System.Collections.Generic.Dictionary<string, Super.RPC.ClassDescriptor>;
 
-namespace SuperRPC;
+namespace Super.RPC;
 
 record AsyncCallbackEntry(Task task, Action<object?> complete, Action<Exception> fail, Type? type);
 public record CallContext(IRPCChannel replyChannel, object? data = null) {

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 
-namespace SuperRPC;
+namespace Super.RPC.Example;
 
 public class MySerive
 {

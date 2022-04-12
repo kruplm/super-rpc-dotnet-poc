@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-namespace SuperRPC;
+namespace Super.RPC;
 
-public class ObjectIdDictionary<TKeyId, TKeyObj, TValue> 
+public class ObjectIdDictionary<TKeyId, TKeyObj, TValue>
     where TKeyId: notnull
     where TKeyObj: notnull
 {

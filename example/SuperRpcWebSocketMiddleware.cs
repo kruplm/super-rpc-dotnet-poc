@@ -2,12 +2,11 @@ using System;
 using System.Diagnostics;
 using System.Net;
 using System.Net.WebSockets;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Super.RPC;
 
-
-namespace SuperRPC;
+namespace Super.RPC.Example;
 
 public class SuperRpcWebSocketMiddleware 
 {

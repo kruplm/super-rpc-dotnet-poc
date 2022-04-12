@@ -7,9 +7,7 @@
             "type": "process",
             "args": [
                 "build",
-                "${workspaceFolder}/super-rpc.csproj",
-                "/property:GenerateFullPaths=true",
-                "/consoleloggerparameters:NoSummary"
+                "${workspaceFolder}/super-rpc.sln"
             ],
             "problemMatcher": "$msCompile"
         },

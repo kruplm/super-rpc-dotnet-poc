@@ -15,7 +15,7 @@ using Nerdbank.Streams;
 using System.Collections.Generic;
 using System.Collections;
 
-namespace SuperRPC;
+namespace Super.RPC;
 
 public record SuperRPCWebSocket(WebSocket webSocket, object? context)
 {

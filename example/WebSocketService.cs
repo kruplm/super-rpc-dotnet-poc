@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Hosting;
 
-namespace SuperRPC
+namespace Super.RPC.Example
 {
     public class WebSocketService
     {

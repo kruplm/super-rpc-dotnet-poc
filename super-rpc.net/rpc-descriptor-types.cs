@@ -1,13 +1,9 @@
 using System.Collections.Generic;
-using System;
 using System.Runtime.Serialization;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
-using Newtonsoft.Json.Linq;
-using System.Linq;
-using System.Collections;
 
-namespace SuperRPC;
+namespace Super.RPC;
 
 [JsonConverter(typeof(StringEnumConverter))]
 public enum FunctionReturnBehavior {

@@ -1,9 +1,9 @@
-using System.Runtime.CompilerServices;
 using System;
+using System.Runtime.CompilerServices;
 using System.Collections.Generic;
 using System.Runtime;
 
-namespace SuperRPC;
+namespace Super.RPC;
 
 public class ProxyObjectRegistry {
 

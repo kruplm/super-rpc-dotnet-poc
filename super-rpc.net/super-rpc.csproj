@@ -2,10 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
-    <RootNamespace>SuperRPC</RootNamespace>
-    <ApplicationIcon />
-    <OutputType>Exe</OutputType>
-    <StartupObject />
+    <RootNamespace>Super.RPC</RootNamespace>
+    <OutputType>Library</OutputType>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
