@@ -34,15 +34,6 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
         return rpcWebSocket;
     }
 
-    // This is useful when handling a server-side WebSocket connection.
-    // The replyChannel will be passed to the message event automatically.
-    public static Task HandleWebsocketConnectionAsync(WebSocket webSocket, RPCReceiveChannel receiveChannel, object? context = null) {
-        var rpcWebSocket = new SuperRPCWebSocket(webSocket, context);
-        rpcWebSocket.ReceiveChannel = receiveChannel;
-        rpcWebSocket.SendChannel = new RPCSendAsyncChannel(rpcWebSocket.ScheduleMessage);
-        return rpcWebSocket.StartReceivingAsync();
-    }
-
     public static void RegisterCustomDeserializer(SuperRPC rpc) {
         rpc.RegisterDeserializer(typeof(object), ConvertTo);
     }

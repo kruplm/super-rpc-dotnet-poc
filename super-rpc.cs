@@ -863,7 +863,7 @@ public class SuperRPC
 
             // add method
             var addMethodParams = new [] { eventInfo.EventHandlerType };
-            var addMethodBuilder = typeBuilder.DefineMethod(addMethodName, 
+            var addMethodBuilder = typeBuilder.DefineMethod(addMethodName,
                 MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.SpecialName | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot,
                 CallingConventions.Standard | CallingConventions.HasThis, typeof(void), addMethodParams);
             
