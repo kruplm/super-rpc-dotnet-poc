@@ -4,7 +4,7 @@ namespace Super.RPC.Tests;
 
 public class ObjectIdDictionaryTests 
 {
-    ObjectIdDictionary<string, object, string> dictionary = new RPC.ObjectIdDictionary<string, object, string>();
+    ObjectIdDictionary<string, object, string> dictionary = new ObjectIdDictionary<string, object, string>();
     object keyObj = new object();
 
     [Fact]

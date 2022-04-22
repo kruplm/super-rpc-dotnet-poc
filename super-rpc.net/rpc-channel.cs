@@ -25,12 +25,12 @@ public interface IRPCReceiveChannel: IRPCChannel {
     event EventHandler<MessageReceivedEventArgs> MessageReceived;
 }
 
+/*** Helper implementations ***/
 public record RPCSendAsyncChannel(Action<RPC_Message> sendAsync) : IRPCSendAsyncChannel {
     public void SendAsync(RPC_Message message) {
         sendAsync(message);
     }
 }
-
 
 public record RPCReceiveChannel : IRPCReceiveChannel {
     public event EventHandler<MessageReceivedEventArgs> MessageReceived;
@@ -43,5 +43,17 @@ public record RPCReceiveChannel : IRPCReceiveChannel {
 public record RPCSendAsyncAndReceiveChannel(Action<RPC_Message> sendAsync) : RPCReceiveChannel, IRPCSendAsyncChannel {
     public void SendAsync(RPC_Message message) {
         sendAsync(message);
+    }
+}
+
+public record RPCSendSyncAndReceiveChannel(Func<RPC_Message, object> sendSync) : RPCReceiveChannel, IRPCSendSyncChannel {
+    public object SendSync(RPC_Message message) {
+        return sendSync(message);
+    }
+}
+
+public record RPCSendSyncAsyncReceiveChannel(Func<RPC_Message, object> sendSync, Action<RPC_Message> sendAsync): RPCSendAsyncAndReceiveChannel(sendAsync), IRPCSendSyncChannel {
+    public object SendSync(RPC_Message message) {
+        return sendSync(message);
     }
 }

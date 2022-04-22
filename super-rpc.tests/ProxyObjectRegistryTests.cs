@@ -1,11 +1,10 @@
 using System;
-using System.Threading.Tasks;
 using Moq;
 using Xunit;
 
 namespace Super.RPC.Tests;
 
-public class ProxyObjectRegistryTests 
+public class ProxyObjectRegistryTests
 {
     ProxyObjectRegistry registry = new ProxyObjectRegistry();
     object? testObj1 = new object();
@@ -39,22 +38,17 @@ public class ProxyObjectRegistryTests
         Assert.Equal(null, registry.Get("id2"));
     }
 
-    [Fact]
+    [Fact(Skip="Could not find a way to get the finalizer called consistently")]
     void Register_DisposeGetsCalled() {
         var mockDispose = new Mock<Action>();
         mockDispose.Setup(_ => _());
 
         registry.Register("id1", testObj1, mockDispose.Object);
-        // registry.Register("id2", testObj2);
 
         testObj1 = null;
         GC.Collect();
         GC.WaitForPendingFinalizers();
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
 
-        // await Task.Delay(500);
-
-        mockDispose.Verify( _ => _(), Times.Once);
+        mockDispose.Verify(_ => _(), Times.Once);
     }
 }
