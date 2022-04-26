@@ -20,7 +20,7 @@ public record CallContext(IRPCChannel replyChannel, object? data = null) {
 
 public class SuperRPC
 {
-    private AsyncLocal<CallContext> _currentContextAsyncLocal = new AsyncLocal<CallContext>();
+    private AsyncLocal<CallContext?> _currentContextAsyncLocal = new AsyncLocal<CallContext?>();
     public CallContext? CurrentContext {
         get => _currentContextAsyncLocal.Value;
         private set => _currentContextAsyncLocal.Value = value;
@@ -144,64 +144,64 @@ public class SuperRPC
         context.replySent = new TaskCompletionSource();
 
         try {
-            switch (message) {
-                case RPC_PropGetMessage propGet: {
+            switch (message.action) {
+                case "prop_get": {
                     var entry = GetHostObject(message.objId, hostObjectRegistry.ById);
-                    result = (entry.obj as Type ?? entry.obj.GetType()).GetProperty(propGet.prop)?.GetValue(entry.obj);
+                    result = (entry.obj as Type ?? entry.obj.GetType()).GetProperty(message.prop)?.GetValue(entry.obj);
                     break;
                 }
-                case RPC_PropSetMessage propSet: {
+                case "prop_set": {
                     var entry = GetHostObject(message.objId, hostObjectRegistry.ById);
-                    var propInfo = (entry.obj as Type ?? entry.obj.GetType()).GetProperty(propSet.prop);
+                    var propInfo = (entry.obj as Type ?? entry.obj.GetType()).GetProperty(message.prop);
                     if (propInfo is null) {
-                        throw new ArgumentException($"Could not find property '{propSet.prop}' on object '{propSet.objId}'.");
+                        throw new ArgumentException($"Could not find property '{message.prop}' on object '{message.objId}'.");
                     }
-                    var argDescriptors = entry.value.ProxiedProperties?.FirstOrDefault(pd => pd.Name == propSet.prop)?.Set?.Arguments;
+                    var argDescriptors = entry.value.ProxiedProperties?.FirstOrDefault(pd => pd.Name == message.prop)?.Set?.Arguments;
                     var argDescriptor = argDescriptors?.Length > 0 ? argDescriptors[0] : null;
-                    var value = ProcessValueAfterDeserialization(propSet.args[0], context, propInfo.PropertyType, argDescriptor);
+                    var value = ProcessValueAfterDeserialization(message.args[0], context, propInfo.PropertyType, argDescriptor);
                     propInfo.SetValue(entry.obj, value);
                     break;
                 }
-                case RPC_RpcCallMessage methodCall: {
+                case "method_call": {
                     var entry = GetHostObject(message.objId, hostObjectRegistry.ById);
                     var objType = entry.obj as Type ?? entry.obj.GetType();
-                    var method = objType.GetMethod(methodCall.prop);
+                    var method = objType.GetMethod(message.prop);
                     if (method is null) {
-                        throw new ArgumentException($"Method '{methodCall.prop}' not found on object '{methodCall.objId}'.");
+                        throw new ArgumentException($"Method '{message.prop}' not found on object '{message.objId}'.");
                     }
-                    var argDescriptors = entry.value.Functions?.FirstOrDefault(fd => fd.Name == methodCall.prop)?.Arguments;
-                    var args = ProcessArgumentsAfterDeserialization(methodCall.args, context, method.GetParameters().Select(param => param.ParameterType).ToArray(), argDescriptors);
+                    var argDescriptors = entry.value.Functions?.FirstOrDefault(fd => fd.Name == message.prop)?.Arguments;
+                    var args = ProcessArgumentsAfterDeserialization(message.args, context, method.GetParameters().Select(param => param.ParameterType).ToArray(), argDescriptors);
                     result = method.Invoke(entry.obj, args);
                     break;
                 }
-                case RPC_FnCallMessage fnCall: {
+                case "fn_call": {
                     var entry = GetHostObject(message.objId, hostFunctionRegistry.ById);
                     var method = entry.obj.Method;
                     var args = ProcessArgumentsAfterDeserialization(
-                        fnCall.args,
+                        message.args,
                         context,
                         method.GetParameters().Select(param => param.ParameterType).ToArray(),
                         entry.value?.Arguments);
                     result = entry.obj.DynamicInvoke(args);
                     break;
                 }
-                case RPC_CtorCallMessage ctorCall: {
+                case "ctor_call": {
                     var classId = message.objId;
                     if (!hostClassRegistry.ById.TryGetValue(classId, out var entry)) {
                         throw new ArgumentException($"No class found with ID '{classId}'.");
                     }
                     var method = entry.obj.GetConstructors()[0];
                     var args = ProcessArgumentsAfterDeserialization(
-                        ctorCall.args,
+                        message.args,
                         context,
                         method.GetParameters().Select(param => param.ParameterType).ToArray(),
                         entry.value.Ctor?.Arguments);
                     result = method.Invoke(args);
                     break;
                 }
-
-                default:
+                default: {
                     throw new ArgumentException($"Invalid message received, action={message.action}");
+                }
             }
         } catch (Exception e) {
             success = false;
@@ -276,7 +276,7 @@ public class SuperRPC
     * If possible, the message is sent synchronously.
     * This is a "push" style message, for "pull" see [[requestRemoteDescriptors]].
     */
-    public void SendRemoteDescriptors(IRPCChannel? replyChannel) {
+    public void SendRemoteDescriptors(IRPCChannel? replyChannel = null) {
         replyChannel ??= Channel;
         SendSyncIfPossible(new RPC_DescriptorsResultMessage {
             objects = GetLocalObjectDescriptors(),

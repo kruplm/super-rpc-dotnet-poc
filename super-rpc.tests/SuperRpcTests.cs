@@ -54,7 +54,7 @@ public class SuperRpcTests
         Assert.Equal(testReply, reply);
     }
 
-    //[Fact]
+    // [Fact]
     Task MockChannel_AsyncWorks() {
         var taskSource = new TaskCompletionSource();
 
@@ -78,7 +78,7 @@ public class SuperRpcTests
 
     public class HostObjectTests : SuperRpcTests
     {
-        interface IHostObject {
+        public interface IHostObject {
             int SyncFunc(int a, int b);
             void FailSyncFunc();
             Task<string> AsyncFunc(string ping);
@@ -130,26 +130,37 @@ public class SuperRpcTests
         }
 
         HostObject hostObj;
+        IHostObject proxyObj;
 
         public HostObjectTests()
         {
             hostObj = new HostObject();
 
-            rpc1.RegisterHostObject("service12", hostObj, new ObjectDescriptor {
+            rpc1.RegisterHostObject("host_obj", hostObj, new ObjectDescriptor {
                 ReadonlyProperties = new [] { "roID" },
                 ProxiedProperties = new PropertyDescriptor[] { "Counter" },
                 Functions = new [] {
-                    new FunctionDescriptor { Name = "syncFunc", Returns = FunctionReturnBehavior.Sync },
-                    new FunctionDescriptor { Name = "failSyncFunc", Returns = FunctionReturnBehavior.Sync },
-                    new FunctionDescriptor { Name = "asyncFunc", Returns = FunctionReturnBehavior.Async },
-                    new FunctionDescriptor { Name = "failAsyncFunc", Returns = FunctionReturnBehavior.Async },
+                    new FunctionDescriptor { Name = "SyncFunc", Returns = FunctionReturnBehavior.Sync },
+                    new FunctionDescriptor { Name = "FailSyncFunc", Returns = FunctionReturnBehavior.Sync },
+                    new FunctionDescriptor { Name = "AsyncFunc", Returns = FunctionReturnBehavior.Async },
+                    new FunctionDescriptor { Name = "FailAsyncFunc", Returns = FunctionReturnBehavior.Async },
                 }
             });
+
+            rpc1.SendRemoteDescriptors();
+
+            proxyObj = rpc2.GetProxyObject<IHostObject>("host_obj");
         }
 
-        [Fact]
+        // [Fact]
         void SyncFuncSuccess() {
+            int actual = proxyObj.SyncFunc(2, 3);
+            Assert.Equal(5, actual);
+        }
 
+        // [Fact]
+        void SyncFuncFail() {
+            proxyObj.FailSyncFunc();
         }
     }
 }

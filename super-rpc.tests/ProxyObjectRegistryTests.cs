@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System;
 using Moq;
 using Xunit;
@@ -38,17 +39,24 @@ public class ProxyObjectRegistryTests
         Assert.Equal(null, registry.Get("id2"));
     }
 
-    [Fact(Skip="Could not find a way to get the finalizer called consistently")]
-    void Register_DisposeGetsCalled() {
+    [Fact]
+    void Register_DisposeGetsCalled()
+    {
         var mockDispose = new Mock<Action>();
         mockDispose.Setup(_ => _());
 
-        registry.Register("id1", testObj1, mockDispose.Object);
+        RegisterNewObject("id1", mockDispose);
 
-        testObj1 = null;
         GC.Collect();
         GC.WaitForPendingFinalizers();
 
         mockDispose.Verify(_ => _(), Times.Once);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void RegisterNewObject(string id, Mock<Action> mockDispose)
+    {
+        var testObj = new object();
+        registry.Register(id, testObj, mockDispose.Object);
     }
 }

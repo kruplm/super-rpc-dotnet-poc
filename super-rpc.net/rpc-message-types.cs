@@ -47,15 +47,6 @@ public record RPC_AnyCallTypeFnCallMessage: RPC_FnCallMessageBase {
     public string? prop;
 }
 
-// public record RPC_VoidFnCallMessage: RPC_AnyCallTypeFnCallMessage {
-//     public RPC_VoidFnCallMessage() { callType = FunctionReturnBehavior.Void; }
-// }
-// public record RPC_SyncFnCallMessage: RPC_AnyCallTypeFnCallMessage {
-//     public RPC_SyncFnCallMessage() { callType = FunctionReturnBehavior.Sync; }
-// }
-// public record RPC_AsyncFnCallMessage: RPC_AnyCallTypeFnCallMessage {
-//     public RPC_AsyncFnCallMessage() { callType = FunctionReturnBehavior.Async; }
-// }
 
 public record RPC_FnCallMessage: RPC_AnyCallTypeFnCallMessage {
     public RPC_FnCallMessage() { action = "fn_call"; }
@@ -65,15 +56,12 @@ public record RPC_CtorCallMessage: RPC_AnyCallTypeFnCallMessage {
 }
 public record RPC_PropGetMessage: RPC_AnyCallTypeFnCallMessage {
     public RPC_PropGetMessage() { action = "prop_get"; }
-    // public string prop;
 }
 public record RPC_PropSetMessage: RPC_AnyCallTypeFnCallMessage {
     public RPC_PropSetMessage() { action = "prop_set"; }
-    // public string prop;
 }
 public record RPC_RpcCallMessage: RPC_AnyCallTypeFnCallMessage {
     public RPC_RpcCallMessage() { action = "method_call"; }
-    // public string prop;
 }
 
 public record RPC_FnResultMessageBase: RPC_Message {
