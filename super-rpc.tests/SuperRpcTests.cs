@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System;
 using System.Threading.Tasks;
 using Xunit;
@@ -27,14 +28,14 @@ public class SuperRpcTests
             return channel2SyncReplyMessage;
         };
 
-        Action<RPC_Message> sendAsync1 = (msg) => Task.Run(() => channel2.Received(msg, channel1));
-        Action<RPC_Message> sendAsync2 = (msg) => Task.Run(() => channel1.Received(msg, channel2));
+        Action<RPC_Message> sendAsync1 = (msg) => Task.Run(() => channel2.Received(msg));
+        Action<RPC_Message> sendAsync2 = (msg) => Task.Run(() => channel1.Received(msg));
 
         channel1 = new RPCSendSyncAsyncReceiveChannel(sendSync1, sendAsync1);
         channel2 = new RPCSendSyncAsyncReceiveChannel(sendSync2, sendAsync2);
 
-        rpc1 = new SuperRPC(() => Guid.NewGuid().ToString());
-        rpc2 = new SuperRPC(() => Guid.NewGuid().ToString());
+        rpc1 = new SuperRPC(() => Guid.NewGuid().ToString(), "RPC1");
+        rpc2 = new SuperRPC(() => Guid.NewGuid().ToString(), "RPC2");
 
         rpc1.Connect(channel1);
         rpc2.Connect(channel2);
@@ -152,15 +153,21 @@ public class SuperRpcTests
             proxyObj = rpc2.GetProxyObject<IHostObject>("host_obj");
         }
 
-        // [Fact]
+        [Fact]
         void SyncFuncSuccess() {
-            int actual = proxyObj.SyncFunc(2, 3);
+            var actual = proxyObj.SyncFunc(2, 3);
             Assert.Equal(5, actual);
         }
 
-        // [Fact]
+        [Fact]
         void SyncFuncFail() {
-            proxyObj.FailSyncFunc();
+            Assert.ThrowsAny<Exception>(() => proxyObj.FailSyncFunc());
+        }
+
+        [Fact]
+        async Task AsyncFuncSuccess() {
+            var result = await proxyObj.AsyncFunc("ping");
+            Assert.Equal("ping pong", result);
         }
     }
 }
