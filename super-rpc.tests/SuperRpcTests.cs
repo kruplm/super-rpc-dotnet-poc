@@ -108,13 +108,13 @@ public class SuperRpcTests
 
             public async Task<string> AsyncFunc(string ping)
             {
-                await Task.Delay(1000);
+                await Task.Delay(10);
                 return ping + " pong";
             }
 
             public async Task<string> FailAsyncFunc(string ping)
             {
-                await Task.Delay(1000);
+                await Task.Delay(10);
                 throw new InvalidOperationException(ping + "ooops");
             }
 
@@ -169,5 +169,16 @@ public class SuperRpcTests
             var result = await proxyObj.AsyncFunc("ping");
             Assert.Equal("ping pong", result);
         }
+
+        [Fact]
+        async Task AsyncFuncFail() {
+            await Assert.ThrowsAsync<ArgumentException>(() => proxyObj.FailAsyncFunc("ping"));
+        }
+
+        [Fact]
+        void ReadonlyProperty() {
+            Assert.Equal("readonly", proxyObj.roID);
+        }
+
     }
 }

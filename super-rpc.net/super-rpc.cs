@@ -373,7 +373,12 @@ public class SuperRPC
 
     private async Task SendResultOnTaskCompletion(Task task, Action<bool, object?> sendResult, CallContext context) {
         var taskType = task.GetType();
-        await task;
+        try {
+            await task;
+        } catch (Exception) {
+            // Could not find another way to wait for the task, but ignore any exceptions/failures.
+        }
+
         if (taskType.IsGenericType && taskType.GetGenericArguments()[0].Name != "VoidTaskResult") {
             sendResult(!task.IsFaulted,
                 task.IsFaulted ? task.Exception?.ToString() :
