@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-using ObjectDescriptors = System.Collections.Generic.Dictionary<string, Super.RPC.ObjectDescriptor>;
+using ObjectDescriptors = System.Collections.Generic.Dictionary<string, Super.RPC.ObjectDescriptorWithProps>;
 using FunctionDescriptors = System.Collections.Generic.Dictionary<string, Super.RPC.FunctionDescriptor>;
 using ClassDescriptors = System.Collections.Generic.Dictionary<string, Super.RPC.ClassDescriptor>;
 
@@ -89,4 +89,4 @@ public record RPC_AsyncCallbackCallMessage: RPC_FnCallMessageBase {
 public record RPC_BaseObj(string objId, string _rpc_type);
 public record RPC_HostObject(string objId): RPC_BaseObj(objId, "hostobject");
 public record RPC_HostFunction(string objId): RPC_BaseObj(objId, "hostfunction");
-public record RPC_Object(string objId, Dictionary<string, object?>? props, string? classId = null): RPC_BaseObj(objId, "object");
+public record RPC_Object(string objId, Dictionary<string, object>? props, string? classId = null): RPC_BaseObj(objId, "object");

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System;
 using System.Threading.Tasks;
 using Xunit;
+using Moq;
 
 namespace Super.RPC.Tests;
 
@@ -87,24 +88,24 @@ public class SuperRpcTests
             string roID { get; }
             int Counter { get; set; }
 
-            event EventHandler<EventArgs> CounterChanged;
+            event Action CounterChanged;
         }
 
         public class HostObject : IHostObject
         {
             public string roID => "readonly";
 
-            private int counter = 0;
+            private int counter = 1;
 
             public int Counter { 
                 get => counter; 
                 set {
                     counter++;
-                    CounterChanged?.Invoke(this, new EventArgs());
+                    CounterChanged?.Invoke();
                 }
             }
 
-            public event EventHandler<EventArgs>? CounterChanged;
+            public event Action? CounterChanged;
 
             public async Task<string> AsyncFunc(string ping)
             {
@@ -145,7 +146,8 @@ public class SuperRpcTests
                     new FunctionDescriptor { Name = "FailSyncFunc", Returns = FunctionReturnBehavior.Sync },
                     new FunctionDescriptor { Name = "AsyncFunc", Returns = FunctionReturnBehavior.Async },
                     new FunctionDescriptor { Name = "FailAsyncFunc", Returns = FunctionReturnBehavior.Async },
-                }
+                },
+                Events = new FunctionDescriptor[] { "CounterChanged" }
             });
 
             rpc1.SendRemoteDescriptors();
@@ -180,5 +182,25 @@ public class SuperRpcTests
             Assert.Equal("readonly", proxyObj.roID);
         }
 
+        [Fact]
+        void ProxiedProperty() {
+            Assert.Equal(1, hostObj.Counter);
+            Assert.Equal(1, proxyObj.Counter);
+
+            proxyObj.Counter++;
+
+            Assert.Equal(2, hostObj.Counter);
+            Assert.Equal(2, proxyObj.Counter);
+        }
+
+        [Fact]
+        void Events() {
+            var mockListener = new Mock<Action>();
+
+            proxyObj.CounterChanged += mockListener.Object;
+            hostObj.Counter = 5;
+
+            mockListener.Verify(listener => listener(), Times.Once);
+        }
     }
 }
