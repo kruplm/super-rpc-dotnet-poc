@@ -542,12 +542,21 @@ public class SuperRPC
                     // special cases for _rpc_type=[host]object/function
                     switch (rpcObj._rpc_type) {
                         case "function": {
-                            obj = GetOrCreateProxyFunction(rpcObj.objId, type, context, argDescriptor);
+                            // If the proxy function is "sync" we don't want to reply on the replyChannel, 
+                            // because the fn call that this proxy function is passed into
+                            // might also want to return its result synchronously.
+                            var ctx = argDescriptor?.Returns == FunctionReturnBehavior.Sync || context.replyChannel is not IRPCSendAsyncChannel ? 
+                                new CallContext(Channel) { replySent = context.replySent } : context;
+                            obj = GetOrCreateProxyFunction(rpcObj.objId, type, ctx, argDescriptor);
                             break;
                         }
                         case "object": {
                             var rpcObj2 = rpcObj as RPC_Object;
-                            obj = GetOrCreateProxyInstance(rpcObj.objId, rpcObj2.classId, rpcObj2.props, type, context.replyChannel);
+                            // If a function on the proxy object is "sync" we don't want to reply on the replyChannel, 
+                            // because the fn call that this proxy object is passed into
+                            // might also want to return its result synchronously.
+                            var channel = context.replyChannel as IRPCSendAsyncChannel ?? Channel;
+                            obj = GetOrCreateProxyInstance(rpcObj.objId, rpcObj2.classId, rpcObj2.props, type, channel);
                             break;
                         }
                         case "hostobject": {
@@ -702,7 +711,11 @@ public class SuperRPC
         
         Task<TReturn?> ProxyFunction(string instanceObjId, object?[] args) {
             callId++;
-            Debug.WriteLine($"[{DebugId}] AsyncProxyFunc {args}");
+
+            var asyncCallback = CreateAsyncCallback(UnwrapTaskReturnType(typeof(TReturn)));
+            asyncCallbacks.Add(callId.ToString(), asyncCallback);
+            Debug.WriteLine($"[{DebugId}] - AsyncProxyFunc asyncCallback added, callId={callId}");
+
             SendAsyncIfPossible(new RPC_AnyCallTypeFnCallMessage {
                 action = action,
                 callType = FunctionReturnBehavior.Async,
@@ -712,9 +725,6 @@ public class SuperRPC
                 args = ProcessArgumentsBeforeSerialization(args, func, context)
             }, context.replyChannel);
             
-            var asyncCallback = CreateAsyncCallback(UnwrapTaskReturnType(typeof(TReturn)));
-            asyncCallbacks.Add(callId.ToString(), asyncCallback);
-            Debug.WriteLine($"[{DebugId}] - AsyncProxyFunc asyncCallback added, callId={callId}");
             return (Task<TReturn>)asyncCallback.task;
         }
 

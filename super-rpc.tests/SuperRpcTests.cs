@@ -16,17 +16,17 @@ public class SuperRpcTests
 
     public SuperRpcTests()
     {
-        RPC_Message? channel1SyncReplyMessage = null;
-        RPC_Message? channel2SyncReplyMessage = null;
 
         Func<RPC_Message, object> sendSync1 = (msg) => {
-            channel2.Received(msg, new RPCSendSyncAndReceiveChannel(reply => channel1SyncReplyMessage = reply));
-            return channel1SyncReplyMessage;
+            RPC_Message? replyMessage = null;
+            channel2.Received(msg, new RPCSendSyncAndReceiveChannel(reply => replyMessage = reply));
+            return replyMessage;
         };
 
         Func<RPC_Message, object> sendSync2 = (msg) => {
-            channel1.Received(msg, new RPCSendSyncAndReceiveChannel(reply => channel2SyncReplyMessage = reply));
-            return channel2SyncReplyMessage;
+            RPC_Message? replyMessage = null;
+            channel1.Received(msg, new RPCSendSyncAndReceiveChannel(reply => replyMessage = reply));
+            return replyMessage;
         };
 
         Action<RPC_Message> sendAsync1 = (msg) => Task.Run(() => channel2.Received(msg));
@@ -100,7 +100,7 @@ public class SuperRpcTests
             public int Counter { 
                 get => counter; 
                 set {
-                    counter++;
+                    counter = value;
                     CounterChanged?.Invoke();
                 }
             }
@@ -194,13 +194,39 @@ public class SuperRpcTests
         }
 
         [Fact]
-        void Events() {
+        async Task Events() {
             var mockListener = new Mock<Action>();
+            var completed = new TaskCompletionSource();
+            mockListener.Setup(listener => listener()).Callback(() => { completed.SetResult(); });
 
             proxyObj.CounterChanged += mockListener.Object;
             hostObj.Counter = 5;
 
+            await completed.Task;
+
             mockListener.Verify(listener => listener(), Times.Once);
         }
+    }
+
+    public class HostFunctionTests : SuperRpcTests
+    {
+        [Fact]
+        void Sync()
+        {
+            var hostFunc = new Mock<Func<int, int>>();
+
+            hostFunc.Setup(func => func(7)).Returns(14);
+
+            rpc1.RegisterHostFunction("host_func", hostFunc.Object, new FunctionDescriptor { Returns = FunctionReturnBehavior.Sync });
+            rpc1.SendRemoteDescriptors();
+
+            var proxyFunc = rpc2.GetProxyFunction<Func<int, int>>("host_func");
+
+            var result = proxyFunc(7);
+
+            Assert.Equal(14, result);
+        }
+
+
     }
 }
