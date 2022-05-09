@@ -847,6 +847,11 @@ public class SuperRPC
         return proxyClassEntry;
     }
 
+    public Func<string, T> GetProxyClass<T>(string classId) {
+        var factory = GetProxyClassFactory(classId);
+        return (string id) => (T)factory(id);
+    }
+
     private Func<string, object> GetProxyClassFactory(string classId, IRPCChannel? channel = null) {
         var entry = GetProxyClassEntry(classId);
         if (entry.value is not null) {
