@@ -4,6 +4,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <RootNamespace>Super.RPC.Tests</RootNamespace>
     <Nullable>enable</Nullable>
+     <EnablePreviewFeatures>True</EnablePreviewFeatures>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 

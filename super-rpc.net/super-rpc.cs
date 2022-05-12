@@ -701,7 +701,13 @@ public class SuperRPC
             if (!response.success) {
                 throw new ArgumentException(response.result?.ToString());
             }
-            return (TReturn?)ProcessValueAfterDeserialization(response.result, context);
+
+            Type? returnType = null;
+            if (action == "ctor_call" && objId is not null && hostClassRegistry.ById.TryGetValue(objId, out var entry)) {
+                returnType = entry.obj;
+            }
+
+            return (TReturn?)ProcessValueAfterDeserialization(response.result, context, returnType);
         }
 
         return ProxyFunction;
@@ -885,6 +891,10 @@ public class SuperRPC
     private Func<string, object> CreateProxyClass(string classId, Type ifType, ObjectDescriptor descriptor, IRPCChannel? channel = null) {
         channel ??= Channel;
 
+        ClassDescriptor? classDescriptor = null;
+
+        remoteClassDescriptors?.TryGetValue(classId, out classDescriptor);
+
         var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName($"SuperRPC_dynamic({Guid.NewGuid()})"), AssemblyBuilderAccess.Run);
         var moduleBuilder = assemblyBuilder.DefineDynamicModule("MainModule");
         var typeBuilder = moduleBuilder.DefineType(classId,
@@ -898,6 +908,9 @@ public class SuperRPC
 
         var objIdField = typeBuilder.DefineField("objId", typeof(string), FieldAttributes.Public | FieldAttributes.InitOnly);
         var proxyFunctionsField = typeBuilder.DefineField("proxyFunctions", typeof(Delegate[]), FieldAttributes.Public | FieldAttributes.InitOnly);
+
+        var proxyFunctions = new List<Delegate>();
+        var skipMethods = new List<string>();
 
         var constructorBuilder = typeBuilder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, new [] {
             typeof(string), typeof(Delegate[]) 
@@ -916,11 +929,13 @@ public class SuperRPC
         ctorIL.Emit(OpCodes.Ldarg_0);   // this
         ctorIL.Emit(OpCodes.Ldarg_2);   // proxyFunctions ref
         ctorIL.Emit(OpCodes.Stfld, proxyFunctionsField); // this.proxyFunctions = arg2
-        
-        ctorIL.Emit(OpCodes.Ret);
 
-        var proxyFunctions = new List<Delegate>();
-        var skipMethods = new List<string>();
+        if (classDescriptor?.Ctor is not null) {
+            GenerateILMethod(ctorIL, objIdField, proxyFunctionsField, proxyFunctions.Count, Type.EmptyTypes, typeof(void));
+            proxyFunctions.Add(CreateProxyFunctionWithReturnType(typeof(void), classId, classDescriptor.Ctor, "ctor_call", new CallContext(channel)));
+        } else {
+            ctorIL.Emit(OpCodes.Ret);
+        }
 
         // Events
         var events = ifType.GetEvents(BindingFlags.Public | BindingFlags.Instance);
