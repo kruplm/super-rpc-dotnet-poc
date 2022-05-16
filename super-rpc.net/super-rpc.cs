@@ -189,6 +189,7 @@ public class SuperRPC
                         context,
                         method.GetParameters().Select(param => param.ParameterType).ToArray(),
                         entry.value?.Arguments);
+                    Debug.WriteLine($"[{DebugId}] fn_call objId={message.objId}");
                     result = entry.obj.DynamicInvoke(args);
                     break;
                 }
@@ -374,10 +375,13 @@ public class SuperRPC
     private async Task SendResultOnTaskCompletion(Task task, Action<bool, object?> sendResult, CallContext context) {
         var taskType = task.GetType();
         try {
+            Debug.WriteLine($"[{DebugId}] awaiting task..");
             await task;
         } catch (Exception) {
             // Could not find another way to wait for the task, but ignore any exceptions/failures.
         }
+
+        Debug.WriteLine($"[{DebugId}] sending result..");
 
         if (taskType.IsGenericType && taskType.GetGenericArguments()[0].Name != "VoidTaskResult") {
             sendResult(!task.IsFaulted,
@@ -426,6 +430,7 @@ public class SuperRPC
         const BindingFlags PropBindFlags = BindingFlags.Public | BindingFlags.Instance;
 
         if (obj is Task task) {
+            Debug.WriteLine($"[{DebugId}] ProcessValueB4, obj is Task");
             string? objId = null;
             if (!hostObjectRegistry.ByObj.ContainsKey(obj)) {
 
@@ -436,6 +441,8 @@ public class SuperRPC
                         callId = objId
                     }, context.replyChannel);
                 }
+
+                Debug.WriteLine($"[{DebugId}] ProcessValueB4 - CallIfReplySent..");
 
                 CallIfReplySent(context, () => SendResultOnTaskCompletion(task, SendResult, context));
             }
@@ -516,70 +523,82 @@ public class SuperRPC
                 throw new ArgumentException("null cannot be passed as a value type");
             }
         } else {
-            if (type is not null) {
-                var objType = obj.GetType();
+            var objType = obj.GetType();
 
-                if (obj is not RPC_BaseObj) {
-                    RPC_BaseObj? rpcObj1 = null;
-                    var rpcObjDeserializer = GetDeserializer(typeof(RPC_Object));
+            if (obj is not RPC_BaseObj) {
+                RPC_BaseObj? rpcObj1 = null;
+                var rpcObjDeserializer = GetDeserializer(typeof(RPC_Object));
+                if (rpcObjDeserializer is not null) {
+                    rpcObj1 = rpcObjDeserializer(obj, typeof(RPC_Object)) as RPC_Object;
+                }
+                if (rpcObj1 is null) {
+                    rpcObjDeserializer = GetDeserializer(typeof(RPC_BaseObj));
                     if (rpcObjDeserializer is not null) {
-                        rpcObj1 = rpcObjDeserializer(obj, typeof(RPC_Object)) as RPC_Object;
-                        
-                    }
-                    if (rpcObj1 is null) {
-                        rpcObjDeserializer = GetDeserializer(typeof(RPC_BaseObj));
-                        if (rpcObjDeserializer is not null) {
-                            rpcObj1 = rpcObjDeserializer(obj, typeof(RPC_BaseObj)) as RPC_BaseObj;
-                        }
-                    }
-                    if (rpcObj1 is not null) {
-                        obj = rpcObj1;
-                        objType = obj.GetType();
+                        rpcObj1 = rpcObjDeserializer(obj, typeof(RPC_BaseObj)) as RPC_BaseObj;
                     }
                 }
-
-                if (obj is RPC_BaseObj rpcObj && rpcObj?.objId is not null) {
-                    // special cases for _rpc_type=[host]object/function
-                    switch (rpcObj._rpc_type) {
-                        case "function": {
-                            // If the proxy function is "sync" we don't want to reply on the replyChannel, 
-                            // because the fn call that this proxy function is passed into
-                            // might also want to return its result synchronously.
-                            var ctx = argDescriptor?.Returns == FunctionReturnBehavior.Sync || context.replyChannel is not IRPCSendAsyncChannel ? 
-                                new CallContext(Channel) { replySent = context.replySent } : context;
-                            obj = GetOrCreateProxyFunction(rpcObj.objId, type, ctx, argDescriptor);
-                            break;
-                        }
-                        case "object": {
-                            var rpcObj2 = rpcObj as RPC_Object;
-                            // If a function on the proxy object is "sync" we don't want to reply on the replyChannel, 
-                            // because the fn call that this proxy object is passed into
-                            // might also want to return its result synchronously.
-                            var channel = context.replyChannel as IRPCSendAsyncChannel ?? Channel;
-                            obj = GetOrCreateProxyInstance(rpcObj.objId, rpcObj2.classId, rpcObj2.props, type, channel);
-                            break;
-                        }
-                        case "hostobject": {
-                            if (hostObjectRegistry.ById.TryGetValue(rpcObj.objId, out var entry)) {
-                                obj = entry.obj;
-                            } else {
-                                throw new ArgumentException($"No host object found with ID '{rpcObj.objId}'.");
-                            }
-                            break;
-                        }
-                        case "hostfunction": {
-                            if (hostFunctionRegistry.ById.TryGetValue(rpcObj.objId, out var entry)) {
-                                obj = entry.obj;
-                            } else {
-                                throw new ArgumentException($"No host function found with ID '{rpcObj.objId}'.");
-                            }
-                            break;
-                        }
-                        default: throw new ArgumentException($"Invalid _rpc_type '{rpcObj._rpc_type}'.");
-                    }
+                if (rpcObj1 is not null) {
+                    obj = rpcObj1;
                     objType = obj.GetType();
                 }
+            }
 
+            if (obj is RPC_BaseObj rpcObj && rpcObj?.objId is not null) {
+
+                if (rpcObj._rpc_type == "object" && type is null && 
+                    rpcObj is RPC_Object rpcObj2 && proxyClassRegistry.ById.TryGetValue(rpcObj2.classId, out var proxyEntry)) 
+                {
+                    type = proxyEntry.obj;
+                }
+
+                // special cases for _rpc_type=[host]object/function
+                switch (rpcObj._rpc_type) {
+                    case "function": {
+                        Debug.WriteLine($"[{DebugId}] ProcessValueAf - RPC_Obj func");
+                        // If the proxy function is "sync" we don't want to reply on the replyChannel, 
+                        // because the fn call that this proxy function is passed into
+                        // might also want to return its result synchronously.
+                        var ctx = argDescriptor?.Returns == FunctionReturnBehavior.Sync || context.replyChannel is not IRPCSendAsyncChannel ? 
+                            new CallContext(Channel) { replySent = context.replySent } : context;
+                        if (type is not null) {
+                            obj = GetOrCreateProxyFunction(rpcObj.objId, type, ctx, argDescriptor);
+                        }
+                        break;
+                    }
+                    case "object": {
+                        Debug.WriteLine($"[{DebugId}] ProcessValueAf - RPC_Obj func");
+                        var rpcObj3 = rpcObj as RPC_Object;
+                        // If a function on the proxy object is "sync" we don't want to reply on the replyChannel, 
+                        // because the fn call that this proxy object is passed into
+                        // might also want to return its result synchronously.
+                        var channel = context.replyChannel as IRPCSendAsyncChannel ?? Channel;
+                        if (type is not null) {
+                            obj = GetOrCreateProxyInstance(rpcObj.objId, rpcObj3.classId, rpcObj3.props, type, channel);
+                        }
+                        break;
+                    }
+                    case "hostobject": {
+                        if (hostObjectRegistry.ById.TryGetValue(rpcObj.objId, out var entry)) {
+                            obj = entry.obj;
+                        } else {
+                            throw new ArgumentException($"No host object found with ID '{rpcObj.objId}'.");
+                        }
+                        break;
+                    }
+                    case "hostfunction": {
+                        if (hostFunctionRegistry.ById.TryGetValue(rpcObj.objId, out var entry)) {
+                            obj = entry.obj;
+                        } else {
+                            throw new ArgumentException($"No host function found with ID '{rpcObj.objId}'.");
+                        }
+                        break;
+                    }
+                    default: throw new ArgumentException($"Invalid _rpc_type '{rpcObj._rpc_type}'.");
+                }
+                objType = obj.GetType();
+            }
+
+            if (type is not null) {
                 // custom deserializers
                 var deserializer = GetDeserializer(type);
                 if (deserializer is not null) {
@@ -640,6 +659,8 @@ public class SuperRPC
         if (obj is not null) return obj;
 
         if (classId == "Promise") {
+            Debug.WriteLine($"[{DebugId}] GetProxyInstance - Promise objId={objId}");
+            
             var resultType = type == typeof(Task) ? typeof(object) : UnwrapTaskReturnType(type);
             var asyncCallback = CreateAsyncCallback(resultType);
             asyncCallbacks.Add(objId, asyncCallback);
@@ -702,12 +723,7 @@ public class SuperRPC
                 throw new ArgumentException(response.result?.ToString());
             }
 
-            Type? returnType = null;
-            if (action == "ctor_call" && objId is not null && hostClassRegistry.ById.TryGetValue(objId, out var entry)) {
-                returnType = entry.obj;
-            }
-
-            return (TReturn?)ProcessValueAfterDeserialization(response.result, context, returnType);
+            return (TReturn?)ProcessValueAfterDeserialization(response.result, context);
         }
 
         return ProxyFunction;
@@ -854,8 +870,12 @@ public class SuperRPC
     }
 
     public Func<string, T> GetProxyClass<T>(string classId) {
-        var factory = GetProxyClassFactory(classId);
-        return (string id) => (T)factory(id);
+        if (remoteClassDescriptors?.TryGetValue(classId, out var descriptor) is not true) {
+            throw new ArgumentException($"No class descriptor found with ID '{classId}'.");
+        }
+
+        var proxyFunc = CreateProxyFunction<T>(classId, descriptor.Ctor, "ctor_call", new CallContext(Channel));
+        return (string id) => (T)proxyFunc.DynamicInvoke(id, new object[0]);
     }
 
     private Func<string, object> GetProxyClassFactory(string classId, IRPCChannel? channel = null) {
@@ -891,10 +911,6 @@ public class SuperRPC
     private Func<string, object> CreateProxyClass(string classId, Type ifType, ObjectDescriptor descriptor, IRPCChannel? channel = null) {
         channel ??= Channel;
 
-        ClassDescriptor? classDescriptor = null;
-
-        remoteClassDescriptors?.TryGetValue(classId, out classDescriptor);
-
         var assemblyBuilder = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName($"SuperRPC_dynamic({Guid.NewGuid()})"), AssemblyBuilderAccess.Run);
         var moduleBuilder = assemblyBuilder.DefineDynamicModule("MainModule");
         var typeBuilder = moduleBuilder.DefineType(classId,
@@ -907,14 +923,12 @@ public class SuperRPC
                 null, new[] { ifType });
 
         var objIdField = typeBuilder.DefineField("objId", typeof(string), FieldAttributes.Public | FieldAttributes.InitOnly);
-        var proxyFunctionsField = typeBuilder.DefineField("proxyFunctions", typeof(Delegate[]), FieldAttributes.Public | FieldAttributes.InitOnly);
+        var proxyFunctionsField = typeBuilder.DefineField("proxyFunctions", typeof(Delegate[]), FieldAttributes.Public | FieldAttributes.Static);
 
         var proxyFunctions = new List<Delegate>();
         var skipMethods = new List<string>();
 
-        var constructorBuilder = typeBuilder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, new [] {
-            typeof(string), typeof(Delegate[]) 
-        });
+        var constructorBuilder = typeBuilder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, new [] { typeof(string) });
         var ctorIL = constructorBuilder.GetILGenerator();
 
         // call base()
@@ -926,16 +940,43 @@ public class SuperRPC
         ctorIL.Emit(OpCodes.Ldarg_1);   // objId ref
         ctorIL.Emit(OpCodes.Stfld, objIdField); // this.objId = arg1
 
-        ctorIL.Emit(OpCodes.Ldarg_0);   // this
-        ctorIL.Emit(OpCodes.Ldarg_2);   // proxyFunctions ref
-        ctorIL.Emit(OpCodes.Stfld, proxyFunctionsField); // this.proxyFunctions = arg2
+        // ctorIL.Emit(OpCodes.Ldarg_0);   // this
+        // ctorIL.Emit(OpCodes.Ldarg_2);   // proxyFunctions ref
+        // ctorIL.Emit(OpCodes.Stfld, proxyFunctionsField); // this.proxyFunctions = arg2
 
-        if (classDescriptor?.Ctor is not null) {
-            GenerateILMethod(ctorIL, objIdField, proxyFunctionsField, proxyFunctions.Count, Type.EmptyTypes, typeof(void));
-            proxyFunctions.Add(CreateProxyFunctionWithReturnType(typeof(void), classId, classDescriptor.Ctor, "ctor_call", new CallContext(channel)));
-        } else {
-            ctorIL.Emit(OpCodes.Ret);
-        }
+        ctorIL.Emit(OpCodes.Ret);
+
+        ClassDescriptor? classDescriptor = null;
+        remoteClassDescriptors?.TryGetValue(classId, out classDescriptor);
+
+        // Static methods
+        // var smethods = ifType.GetMethods(BindingFlags.Public | BindingFlags.Static);
+
+        // foreach (var methodInfo in smethods) {
+        //     if (skipMethods.Contains(methodInfo.Name)) continue;
+
+        //     var funcDescriptor = classDescriptor?.Static?.Functions?.FirstOrDefault(desc => desc.Name == methodInfo.Name);    // TODO: camelCase <-> PascalCase ?
+        //     if (funcDescriptor is null) {
+        //         throw new ArgumentException($"No function descriptor found for method '{methodInfo.Name}' in class '{classId}'.");
+        //     }
+
+        //     var paramInfos = methodInfo.GetParameters();
+        //     var paramTypes = paramInfos.Select(pi => pi.ParameterType).ToArray();
+
+        //     var methodBuilder = typeBuilder.DefineMethod(methodInfo.Name,
+        //         MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.Virtual,
+        //         CallingConventions.Standard,
+        //         methodInfo.ReturnType,
+        //         // methodInfo.ReturnParameter.GetRequiredCustomModifiers(),
+        //         // methodInfo.ReturnParameter.GetOptionalCustomModifiers(),
+        //         paramTypes
+        //         // paramInfos.Select(pi => pi.GetRequiredCustomModifiers()).ToArray(),
+        //         // paramInfos.Select(pi => pi.GetOptionalCustomModifiers()).ToArray()
+        //     );
+
+        //     GenerateILMethod(methodBuilder.GetILGenerator(), objIdField, proxyFunctionsField, proxyFunctions.Count, paramTypes, methodInfo.ReturnType, isStatic: true);
+        //     proxyFunctions.Add(CreateProxyFunctionWithReturnType(UnwrapTaskReturnType(methodInfo.ReturnType), classId, funcDescriptor, "method_call", new CallContext(channel)));
+        // }
 
         // Events
         var events = ifType.GetEvents(BindingFlags.Public | BindingFlags.Instance);
@@ -1096,15 +1137,17 @@ public class SuperRPC
 
         var proxyFunctionsArr = proxyFunctions.ToArray();
         var type = typeBuilder.CreateType();
+
+        type.GetField(proxyFunctionsField.Name, BindingFlags.Public | BindingFlags.Static).SetValue(type, proxyFunctionsArr);
+
         object CreateInstance(string objId) {
-            return Activator.CreateInstance(type, objId, proxyFunctionsArr);
+            return Activator.CreateInstance(type, objId);
         }
         return CreateInstance;
     }
 
-    void GenerateILMethod(ILGenerator il, FieldBuilder objIdField, FieldBuilder proxyFunctionsField, int funcIdx, Type[] paramTypes, Type returnType) {
-        il.Emit(OpCodes.Ldarg_0);                       // "this" (ref of this generated class)
-        il.Emit(OpCodes.Ldfld, proxyFunctionsField);    // "this" (ref of Delegate[] containing proxy functions)
+    void GenerateILMethod(ILGenerator il, FieldBuilder objIdField, FieldBuilder proxyFunctionsField, int funcIdx, Type[] paramTypes, Type returnType, bool isStatic = false) {
+        il.Emit(OpCodes.Ldsfld, proxyFunctionsField);    // ref of Delegate[] containing proxy functions
         il.Emit(OpCodes.Ldc_I4, funcIdx);
         il.Emit(OpCodes.Ldelem_Ref);                    // proxyFunction [Delegate] is on the stack now
 
@@ -1113,8 +1156,13 @@ public class SuperRPC
 
         il.Emit(OpCodes.Dup);               // arr2
         il.Emit(OpCodes.Ldc_I4_0);          // 0
-        il.Emit(OpCodes.Ldarg_0);           // "this" 
-        il.Emit(OpCodes.Ldfld, objIdField); // push(this.objId)
+
+        if (isStatic) {
+            il.Emit(OpCodes.Ldnull);
+        } else {
+            il.Emit(OpCodes.Ldarg_0);           // "this" 
+            il.Emit(OpCodes.Ldfld, objIdField); // push(this.objId)
+        }
         il.Emit(OpCodes.Stelem_Ref);        // arr2[0] = objId
         
         il.Emit(OpCodes.Dup);               // arr2

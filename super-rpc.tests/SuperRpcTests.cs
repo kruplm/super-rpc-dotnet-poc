@@ -273,16 +273,32 @@ public class SuperRpcTests
             await Assert.ThrowsAsync<ArgumentException>(() => proxyFunc(13));
             hostFunc.Verify(func => func(13), Times.Once);
         }
+
+        // [Fact]
+        async Task PassingATask() {
+            // var giveMeATask = (Func<Task<string>, Task<string>> func) => func(Task.FromException<string>(new InvalidOperationException("BOOM")));
+            var giveMeATask = (Func<Task<string>, Task<string>> func) => { 
+                Debug.WriteLine($"called lambda");
+                return func(Task.FromException<string>(new InvalidOperationException("BOOM")));
+            };
+            rpc1.RegisterHostFunction("fTask", giveMeATask);
+            rpc1.SendRemoteDescriptors();
+
+            var proxyGiveMeATask = rpc2.GetProxyFunction<Func<Func<Task<string>, Task<string>>, Task<string>>>("fTask");
+
+            await Assert.ThrowsAsync<ArgumentException>(() => proxyGiveMeATask(async (t) => "well" + await t));
+        }
+
     }
 
     public class HostClassTests: SuperRpcTests 
     {
         public interface ITestClass 
         {
-            public static readonly string CONSTANT;
-            public static int Counter;
+            // public static readonly string CONSTANT;
+            // public static int Counter;
 
-            public static abstract TestClass CreateInstance(string name);
+            // public static abstract TestClass CreateInstance(string name);
 
             public string? Name { get; set; }
 
@@ -313,29 +329,38 @@ public class SuperRpcTests
         }
 
         Func<string, ITestClass> proxyClassFactory;
+        TestClass testInstance;
 
         public HostClassTests() {
             rpc1.RegisterHostClass<TestClass>("testClass", new ClassDescriptor {
                 Ctor = new FunctionDescriptor { Returns = FunctionReturnBehavior.Sync },
-                Static = new ObjectDescriptor {
-                    ReadonlyProperties = new [] { "CONSTANT" },
-                    ProxiedProperties = new PropertyDescriptor[] { "Counter" },
-                    Functions = new FunctionDescriptor[] { "CreateInstance" }
-                },
+                // Static = new ObjectDescriptor {
+                //     ReadonlyProperties = new [] { "CONSTANT" },
+                //     ProxiedProperties = new PropertyDescriptor[] { "Counter" },
+                //     Functions = new FunctionDescriptor[] { "CreateInstance" }
+                // },
                 Instance = new ObjectDescriptor {
                     ReadonlyProperties = new [] { "Name" },
                     ProxiedProperties = new PropertyDescriptor[] { "Color" },
-                    Functions = new FunctionDescriptor[] { "GetDescription" }
+                    Functions = new [] { new FunctionDescriptor { Name = "GetDescription", Returns = FunctionReturnBehavior.Sync } }
                 }
             });
+            testInstance = new TestClass { Name = "Test1" };
+
+            rpc1.RegisterHostFunction("getInstance", () => testInstance, new FunctionDescriptor {
+                Returns = FunctionReturnBehavior.Async
+            });
+
             rpc1.SendRemoteDescriptors();
             rpc2.RegisterProxyClass<ITestClass>("testClass");
 
             proxyClassFactory = rpc2.GetProxyClass<ITestClass>("testClass");
         }
 
-        // [Fact]
+        [Fact]
         void Ctor() {
+            TestClass.Counter = 0;
+
             var proxyObj = proxyClassFactory("test");
             Assert.Equal(1, TestClass.Counter);
 
@@ -343,6 +368,45 @@ public class SuperRpcTests
             Assert.Equal(2, TestClass.Counter);
         }
 
+        [Fact]
+        async Task ReturningAnInstance() {
+            var getInstance = rpc2.GetProxyFunction<Func<Task<ITestClass>>>("getInstance");
+            var instance = await getInstance();
 
+            Assert.Equal("Test1", instance.Name);
+            Assert.Equal("blue", instance.Color);
+        }
+        
+        [Fact]
+        async Task ProxiedProperty() {
+            var getInstance = rpc2.GetProxyFunction<Func<Task<ITestClass>>>("getInstance");
+            var instance = await getInstance();
+
+            Assert.Equal("blue", instance.Color);
+
+            instance.Color = "green";
+
+            Assert.Equal("green Test1", instance.GetDescription());
+        }
+
+
+    }
+
+    public class Errors : SuperRpcTests {
+
+        [Fact]
+        void NoObjectRegisteredWithId() {
+            Assert.Throws<ArgumentException>(() => rpc1.GetProxyObject<object>("fake"));
+        }
+
+        [Fact]
+        void NoClassRegisteredWithId() {
+            Assert.Throws<ArgumentException>(() => rpc1.GetProxyClass<object>("fake"));
+        }
+
+        [Fact]
+        void NoFunctionRegisteredWithId() {
+            Assert.Throws<ArgumentException>(() => rpc1.GetProxyFunction<Action>("fake"));
+        }
     }
 }
