@@ -277,7 +277,7 @@ public class SuperRpcTests
         // [Fact]
         async Task PassingATask() {
             // var giveMeATask = (Func<Task<string>, Task<string>> func) => func(Task.FromException<string>(new InvalidOperationException("BOOM")));
-            var giveMeATask = (Func<Task<string>, Task<string>> func) => { 
+            var giveMeATask = (Func<Task<string>, Task<string>> func) => {
                 Debug.WriteLine($"called lambda");
                 return func(Task.FromException<string>(new InvalidOperationException("BOOM")));
             };

@@ -73,8 +73,14 @@ public record ObjectDescriptorWithProps: ObjectDescriptor {
     [JsonProperty("props")]
     public Dictionary<string, object> Props;
 
-    public ObjectDescriptorWithProps(ObjectDescriptor other, Dictionary<string, object> props): base(other) {
-        this.Props = props;
+    public static ObjectDescriptorWithProps From(ObjectDescriptor other, Dictionary<string, object> props) {
+        return new ObjectDescriptorWithProps {
+            Functions = other.Functions,
+            ReadonlyProperties = other.ReadonlyProperties,
+            ProxiedProperties = other.ProxiedProperties,
+            Events = other.Events,
+            Props = props
+        };
     }
 }
 

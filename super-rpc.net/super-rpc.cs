@@ -308,7 +308,7 @@ public class SuperRPC
                         if (value is not null) props.Add(prop, value);
                     }
                 }
-                descriptors.Add(key, new ObjectDescriptorWithProps(objectDescriptor, props));
+                descriptors.Add(key, ObjectDescriptorWithProps.From(objectDescriptor, props));
             }
         }
 
@@ -364,7 +364,7 @@ public class SuperRPC
         deserializers.Add(type, deserializer);
     }
 
-    private void CallIfReplySent(CallContext context, Action action) {
+    private void CallAfterReplySent(CallContext context, Action action) {
         if (context.replySent is not null) {
             context.replySent.Task.ContinueWith(_ => action());
         } else {
@@ -423,7 +423,7 @@ public class SuperRPC
 
         var proxyId = proxyObjectRegistry.GetId(obj);
         if (proxyId is not null) {
-            return obj is Delegate ? new RPC_HostFunction(proxyId) : new RPC_HostObject(proxyId);
+            return obj is Delegate ? new RPC_BaseObj(proxyId, "hostfunction") : new RPC_BaseObj(proxyId, "hostobject");
         }
 
         var objType = obj.GetType();
@@ -444,10 +444,10 @@ public class SuperRPC
 
                 Debug.WriteLine($"[{DebugId}] ProcessValueB4 - CallIfReplySent..");
 
-                CallIfReplySent(context, () => SendResultOnTaskCompletion(task, SendResult, context));
+                CallAfterReplySent(context, () => SendResultOnTaskCompletion(task, SendResult, context));
             }
             objId = RegisterLocalObj(obj);
-            return new RPC_Object(objId, null, "Promise");
+            return new RPC_Object(objId, "object", null, "Promise");
         }
 
         if (hostClassRegistry.ByObj.TryGetValue(objType, out var entry)) {
@@ -459,7 +459,7 @@ public class SuperRPC
                 var propertyInfos = descriptor.Instance.ReadonlyProperties.Select(prop => objType.GetProperty(prop, PropBindFlags)).ToArray();
                 ProcessPropertyValuesBeforeSerialization(obj, propertyInfos, propertyBag, context);
             }
-            return new RPC_Object(objId, propertyBag, entry.id);
+            return new RPC_Object(objId, "object", propertyBag, entry.id);
         }
 
         if (obj is Delegate func) {
@@ -473,7 +473,7 @@ public class SuperRPC
 
             if (ProcessPropertyValuesBeforeSerialization(obj, propertyInfos, propertyBag, context)) {
                 var objId = RegisterLocalObj(obj);
-                return new RPC_Object(objId, propertyBag);
+                return new RPC_Object(objId, "object", propertyBag);
             }
         }
 
@@ -537,7 +537,7 @@ public class SuperRPC
                         rpcObj1 = rpcObjDeserializer(obj, typeof(RPC_BaseObj)) as RPC_BaseObj;
                     }
                 }
-                if (rpcObj1 is not null) {
+                if (rpcObj1 is not null && rpcObj1._rpc_type is not null) {
                     obj = rpcObj1;
                     objType = obj.GetType();
                 }
@@ -545,8 +545,8 @@ public class SuperRPC
 
             if (obj is RPC_BaseObj rpcObj && rpcObj?.objId is not null) {
 
-                if (rpcObj._rpc_type == "object" && type is null && 
-                    rpcObj is RPC_Object rpcObj2 && proxyClassRegistry.ById.TryGetValue(rpcObj2.classId, out var proxyEntry)) 
+                if (rpcObj._rpc_type == "object" && type is null &&
+                    rpcObj is RPC_Object rpcObj2 && proxyClassRegistry.ById.TryGetValue(rpcObj2.classId, out var proxyEntry))
                 {
                     type = proxyEntry.obj;
                 }
