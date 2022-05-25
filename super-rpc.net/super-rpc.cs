@@ -734,6 +734,9 @@ public class SuperRPC
         Task<TReturn?> ProxyFunction(string instanceObjId, object?[] args) {
             callId++;
 
+            var ownCtx = context.replySent is null;
+            var ctx = ownCtx ? new CallContext(context.replyChannel) { replySent = new TaskCompletionSource() } : context;
+
             var asyncCallback = CreateAsyncCallback(UnwrapTaskReturnType(typeof(TReturn)));
             asyncCallbacks.Add(callId.ToString(), asyncCallback);
             Debug.WriteLine($"[{DebugId}] - AsyncProxyFunc asyncCallback added, callId={callId}");
@@ -744,8 +747,10 @@ public class SuperRPC
                 callId = callId.ToString(),
                 objId = objId ?? instanceObjId,
                 prop = func?.Name,
-                args = ProcessArgumentsBeforeSerialization(args, func, context)
-            }, context.replyChannel);
+                args = ProcessArgumentsBeforeSerialization(args, func, ctx)
+            }, ctx.replyChannel);
+
+            if (ownCtx) ctx.replySent.SetResult();
             
             return (Task<TReturn>)asyncCallback.task;
         }

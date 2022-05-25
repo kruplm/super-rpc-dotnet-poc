@@ -274,19 +274,67 @@ public class SuperRpcTests
             hostFunc.Verify(func => func(13), Times.Once);
         }
 
+        [Fact]
+        async Task PassingATask_Completed() {
+            var giveMeATask = async (Task<string> t) => "hello " + await t;
+            rpc1.RegisterHostFunction("giveMeATask", giveMeATask);
+            rpc1.SendRemoteDescriptors();
+
+            var proxyGiveMeATask = rpc2.GetProxyFunction<Func<Task<string>, Task<string>>>("giveMeATask");
+
+            Assert.Equal("hello world", await proxyGiveMeATask(Task.FromResult("world")));
+        }
+        
+        [Fact]
+        async Task PassingATask_Delayed() {
+            var giveMeATask = async (Task<string> t) => "hi " + await t;
+            rpc1.RegisterHostFunction("giveMeATask", giveMeATask);
+            rpc1.SendRemoteDescriptors();
+
+            var proxyGiveMeATask = rpc2.GetProxyFunction<Func<Task<string>, Task<string>>>("giveMeATask");
+
+            Assert.Equal("hi world", await proxyGiveMeATask(Task.Delay(1).ContinueWith(t => "world")));
+        }
+        
+        [Fact]
+        async Task PassingATask_Error() {
+            var giveMeATask = async (Task<string> t) => "hi " + await t;
+            rpc1.RegisterHostFunction("giveMeATask", giveMeATask);
+            rpc1.SendRemoteDescriptors();
+
+            var proxyGiveMeATask = rpc2.GetProxyFunction<Func<Task<string>, Task<string>>>("giveMeATask");
+
+            await Assert.ThrowsAnyAsync<ArgumentException>(() => proxyGiveMeATask(Task.FromException<string>(new InvalidOperationException("error"))));
+        }
+
+        [Fact]
+        async Task PassingAnAsyncFunc_Success() {
+            
+            var giveMeAFunc = (Func<Task<string>, Task<string>> func) => {
+                Debug.WriteLine($"called lambda");
+                return func(Task.FromResult("result"));
+            };
+            rpc1.RegisterHostFunction("asyncFunc", giveMeAFunc);
+            rpc1.SendRemoteDescriptors();
+
+            var proxyGiveMeAFunc = rpc2.GetProxyFunction<Func<Func<Task<string>, Task<string>>, Task<string>>>("asyncFunc");
+
+            Assert.Equal("wellresult", await proxyGiveMeAFunc(async (t) => "well" + await t));
+        }
+        
         // [Fact]
-        async Task PassingATask() {
-            // var giveMeATask = (Func<Task<string>, Task<string>> func) => func(Task.FromException<string>(new InvalidOperationException("BOOM")));
-            var giveMeATask = (Func<Task<string>, Task<string>> func) => {
+        async Task PassingAnAsyncFunc_Error() {
+            // var giveMeAFunc = (Func<Task<string>, Task<string>> func) => func(Task.FromException<string>(new InvalidOperationException("BOOM")));
+            var giveMeAFunc = (Func<Task<string>, Task<string>> func) => {
                 Debug.WriteLine($"called lambda");
                 return func(Task.FromException<string>(new InvalidOperationException("BOOM")));
             };
-            rpc1.RegisterHostFunction("fTask", giveMeATask);
+            rpc1.RegisterHostFunction("asyncFunc", giveMeAFunc);
             rpc1.SendRemoteDescriptors();
 
-            var proxyGiveMeATask = rpc2.GetProxyFunction<Func<Func<Task<string>, Task<string>>, Task<string>>>("fTask");
+            var proxyGiveMeAFunc = rpc2.GetProxyFunction<Func<Func<Task<string>, Task<string>>, Task<string>>>("asyncFunc");
 
-            await Assert.ThrowsAsync<ArgumentException>(() => proxyGiveMeATask(async (t) => "well" + await t));
+            await Assert.ThrowsAsync<ArgumentException>(() => proxyGiveMeAFunc(async (t) => "well" + await t));
         }
 
     }

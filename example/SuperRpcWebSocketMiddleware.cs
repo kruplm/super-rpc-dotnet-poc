@@ -67,21 +67,21 @@ public class SuperRpcWebSocketMiddleware
 
         rpc.RegisterProxyClass<ITestProxyService>("TestService");
         rpc.RegisterHostFunction("testJsHost", () => {
-            // var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc", (IRPCChannel?)rpc.CurrentContext);
-            // var rs = jsFunc("hello", "world");
-            // rs.ContinueWith( t => Console.WriteLine("JS func call: {0}", t.Result));
+            var jsFunc = rpc.GetProxyFunction<Func<string, string, Task<string>>>("jsFunc", rpc.CurrentContext);
+            var rs = jsFunc("hello", "world");
+            rs.ContinueWith( t => Console.WriteLine("JS func call: {0}", t.Result));
 
-            // var jsObj = rpc.GetProxyObject<IService>("jsObj", (IRPCChannel?)rpc.CurrentContext);
-            // var result = jsObj.Add(5, 6);
-            // result.ContinueWith( t => Console.WriteLine("JS object method: {0}", t.Result));
+            var jsObj = rpc.GetProxyObject<IService>("jsObj", rpc.CurrentContext.replyChannel);
+            var result = jsObj.Add(5, 6);
+            result.ContinueWith( t => Console.WriteLine("JS object method: {0}", t.Result));
 
 
-            // rpc.RegisterProxyClass<IService>("JsService");
+            rpc.RegisterProxyClass<IService>("JsService");
             
-            // var getJsService = rpc.GetProxyFunction<Func<Task<IService>>>("getJsService", (IRPCChannel?)rpc.CurrentContext);
-            // getJsService().ContinueWith(jsService => {
-            //     jsService.Result.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: {0}", t.Result));
-            // });
+            var getJsService = rpc.GetProxyFunction<Func<Task<IService>>>("getJsService", rpc.CurrentContext);
+            getJsService().ContinueWith(jsService => {
+                jsService.Result.Add(7, 8).ContinueWith( t => Console.WriteLine("JS class: {0}", t.Result));
+            });
 
 
             var getTestService = rpc.GetProxyFunction<Func<Task<ITestProxyService>>>("getTestService", rpc.CurrentContext);
