@@ -71,9 +71,9 @@ public record ObjectDescriptor(): Descriptor("object")
 
 public record ObjectDescriptorWithProps: ObjectDescriptor {
     [JsonProperty("props")]
-    public Dictionary<string, object> Props;
+    public Dictionary<string, object?>? Props;
 
-    public static ObjectDescriptorWithProps From(ObjectDescriptor other, Dictionary<string, object> props) {
+    public static ObjectDescriptorWithProps From(ObjectDescriptor other, Dictionary<string, object?> props) {
         return new ObjectDescriptorWithProps {
             Functions = other.Functions,
             ReadonlyProperties = other.ReadonlyProperties,

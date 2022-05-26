@@ -19,7 +19,7 @@ namespace Super.RPC;
 
 public record SuperRPCWebSocket(WebSocket webSocket, object? context)
 {
-    public RPCReceiveChannel ReceiveChannel;
+    public RPCReceiveChannel? ReceiveChannel;
     public IRPCSendAsyncChannel SendChannel;
 
     // This is for the websocket client case. You need to call StartReceivingAsync()
@@ -42,7 +42,7 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
         if (obj is JArray array) {
             if (targetType.IsGenericType && targetType.GetGenericTypeDefinition() == typeof(List<>)) {
                 var elementType = targetType.GetGenericArguments()[0];
-                var list = (IList)Activator.CreateInstance(targetType);
+                var list = (IList)Activator.CreateInstance(targetType)!;
                 foreach (var item in array) {
                     list.Add(ConvertTo(item, elementType));
                 }
@@ -50,9 +50,9 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
             }
             if (targetType.IsArray) {
                 var elementType = targetType.GetElementType();
-                var arr = (IList)Activator.CreateInstance(targetType, array.Count);
+                var arr = (IList)Activator.CreateInstance(targetType, array.Count)!;
                 for (var i = 0; i < array.Count; i++) {
-                    arr[i] = ConvertTo(array[i], elementType);
+                    arr[i] = ConvertTo(array[i], elementType!);
                 }
                 return arr;
             }

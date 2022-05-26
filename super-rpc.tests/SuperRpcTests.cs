@@ -6,6 +6,7 @@ using Moq;
 
 namespace Super.RPC.Tests;
 
+#pragma warning disable VSTHRD200 // Don't want to add "Async" suffix to all async test methods, the names actually represent what the test does
 public class SuperRpcTests
 {
     RPCSendSyncAsyncReceiveChannel channel1;
@@ -17,20 +18,20 @@ public class SuperRpcTests
     public SuperRpcTests()
     {
 
-        Func<RPC_Message, object> sendSync1 = (msg) => {
+        Func<RPC_Message, object?> sendSync1 = (msg) => {
             RPC_Message? replyMessage = null;
-            channel2.Received(msg, new RPCSendSyncAndReceiveChannel(reply => replyMessage = reply));
+            channel2!.Received(msg, new RPCSendSyncAndReceiveChannel(reply => replyMessage = reply));
             return replyMessage;
         };
 
-        Func<RPC_Message, object> sendSync2 = (msg) => {
+        Func<RPC_Message, object?> sendSync2 = (msg) => {
             RPC_Message? replyMessage = null;
-            channel1.Received(msg, new RPCSendSyncAndReceiveChannel(reply => replyMessage = reply));
+            channel1!.Received(msg, new RPCSendSyncAndReceiveChannel(reply => replyMessage = reply));
             return replyMessage;
         };
 
-        Action<RPC_Message> sendAsync1 = (msg) => Task.Run(() => channel2.Received(msg));
-        Action<RPC_Message> sendAsync2 = (msg) => Task.Run(() => channel1.Received(msg));
+        Action<RPC_Message> sendAsync1 = (msg) => Task.Run(() => channel2!.Received(msg));
+        Action<RPC_Message> sendAsync2 = (msg) => Task.Run(() => channel1!.Received(msg));
 
         channel1 = new RPCSendSyncAsyncReceiveChannel(sendSync1, sendAsync1);
         channel2 = new RPCSendSyncAsyncReceiveChannel(sendSync2, sendAsync2);
@@ -49,7 +50,7 @@ public class SuperRpcTests
 
         channel1.MessageReceived += (sender, evtArgs) => {
             Assert.Equal(testMsg, evtArgs.message);
-            (evtArgs.replyChannel as IRPCSendSyncChannel).SendSync(testReply);
+            (evtArgs.replyChannel as IRPCSendSyncChannel)!.SendSync(testReply);
         };
 
         var reply = channel2.SendSync(testMsg);
@@ -70,7 +71,7 @@ public class SuperRpcTests
 
         channel1.MessageReceived += (sender, evtArgs) => {
             Assert.Equal(testMsg, evtArgs.message);
-            (evtArgs.replyChannel as IRPCSendAsyncChannel).SendAsync(testReply);
+            (evtArgs.replyChannel as IRPCSendAsyncChannel)!.SendAsync(testReply);
         };
 
         channel2.SendAsync(testMsg);
@@ -309,11 +310,8 @@ public class SuperRpcTests
 
         [Fact]
         async Task PassingAnAsyncFunc_Success() {
-            
-            var giveMeAFunc = (Func<Task<string>, Task<string>> func) => {
-                Debug.WriteLine($"called lambda");
-                return func(Task.FromResult("result"));
-            };
+            var giveMeAFunc = (Func<Task<string>, Task<string>> func) => func(Task.FromResult("result"));
+
             rpc1.RegisterHostFunction("asyncFunc", giveMeAFunc);
             rpc1.SendRemoteDescriptors();
 
@@ -322,19 +320,16 @@ public class SuperRpcTests
             Assert.Equal("wellresult", await proxyGiveMeAFunc(async (t) => "well" + await t));
         }
         
-        // [Fact]
+        [Fact]
         async Task PassingAnAsyncFunc_Error() {
-            // var giveMeAFunc = (Func<Task<string>, Task<string>> func) => func(Task.FromException<string>(new InvalidOperationException("BOOM")));
-            var giveMeAFunc = (Func<Task<string>, Task<string>> func) => {
-                Debug.WriteLine($"called lambda");
-                return func(Task.FromException<string>(new InvalidOperationException("BOOM")));
-            };
+            var giveMeAFunc = (Func<Task<string>, Task<string>> func) => func(Task.FromException<string>(new InvalidOperationException("error")));
+
             rpc1.RegisterHostFunction("asyncFunc", giveMeAFunc);
             rpc1.SendRemoteDescriptors();
 
             var proxyGiveMeAFunc = rpc2.GetProxyFunction<Func<Func<Task<string>, Task<string>>, Task<string>>>("asyncFunc");
 
-            await Assert.ThrowsAsync<ArgumentException>(() => proxyGiveMeAFunc(async (t) => "well" + await t));
+            await Assert.ThrowsAnyAsync<ArgumentException>(() => proxyGiveMeAFunc(async (t) => "well" + await t));
         }
 
     }

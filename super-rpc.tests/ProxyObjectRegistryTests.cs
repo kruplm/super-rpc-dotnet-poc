@@ -8,8 +8,8 @@ namespace Super.RPC.Tests;
 public class ProxyObjectRegistryTests
 {
     ProxyObjectRegistry registry = new ProxyObjectRegistry();
-    object? testObj1 = new object();
-    object? testObj2 = new object();
+    object testObj1 = new object();
+    object testObj2 = new object();
 
     [Fact]
     void GetId_ReturnsTheId() {

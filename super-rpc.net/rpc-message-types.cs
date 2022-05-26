@@ -87,4 +87,4 @@ public record RPC_AsyncCallbackCallMessage: RPC_FnCallMessageBase {
 }
 
 public record RPC_BaseObj(string objId, string _rpc_type);
-public record RPC_Object(string objId, string _rpc_type, Dictionary<string, object>? props, string? classId = null): RPC_BaseObj(objId, _rpc_type);
+public record RPC_Object(string objId, string _rpc_type, Dictionary<string, object?>? props, string? classId = null): RPC_BaseObj(objId, _rpc_type);

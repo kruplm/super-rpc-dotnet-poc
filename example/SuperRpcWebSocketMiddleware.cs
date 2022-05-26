@@ -86,7 +86,7 @@ public class SuperRpcWebSocketMiddleware
 
             var getTestService = rpc.GetProxyFunction<Func<Task<ITestProxyService>>>("getTestService", rpc.CurrentContext);
             getTestService().ContinueWith(async (testServiceTask) => {
-                var service = testServiceTask.Result;
+                var service = await testServiceTask;
                 var listener = (int counterValue) => {
                     System.Console.WriteLine($"CounterChanged: {counterValue}");
                 };

@@ -6,7 +6,7 @@ public interface IRPCSendSyncChannel: IRPCChannel {
     /**
     * Sends a message and returns the response synchronously.
     */
-    object SendSync(RPC_Message message);
+    object? SendSync(RPC_Message message);
 }
 
 public interface IRPCSendAsyncChannel: IRPCChannel {
@@ -33,7 +33,7 @@ public record RPCSendAsyncChannel(Action<RPC_Message> sendAsync) : IRPCSendAsync
 }
 
 public record RPCReceiveChannel : IRPCReceiveChannel {
-    public event EventHandler<MessageReceivedEventArgs> MessageReceived;
+    public event EventHandler<MessageReceivedEventArgs>? MessageReceived;
     
     public void Received(RPC_Message message, IRPCChannel? replyChannel = null, object? context = null, object? sender = null) {
         MessageReceived?.Invoke(sender ?? this, new MessageReceivedEventArgs(message, replyChannel, context));
@@ -46,14 +46,14 @@ public record RPCSendAsyncAndReceiveChannel(Action<RPC_Message> sendAsync) : RPC
     }
 }
 
-public record RPCSendSyncAndReceiveChannel(Func<RPC_Message, object> sendSync) : RPCReceiveChannel, IRPCSendSyncChannel {
-    public object SendSync(RPC_Message message) {
+public record RPCSendSyncAndReceiveChannel(Func<RPC_Message, object?> sendSync) : RPCReceiveChannel, IRPCSendSyncChannel {
+    public object? SendSync(RPC_Message message) {
         return sendSync(message);
     }
 }
 
-public record RPCSendSyncAsyncReceiveChannel(Func<RPC_Message, object> sendSync, Action<RPC_Message> sendAsync): RPCSendAsyncAndReceiveChannel(sendAsync), IRPCSendSyncChannel {
-    public object SendSync(RPC_Message message) {
+public record RPCSendSyncAsyncReceiveChannel(Func<RPC_Message, object?> sendSync, Action<RPC_Message> sendAsync): RPCSendAsyncAndReceiveChannel(sendAsync), IRPCSendSyncChannel {
+    public object? SendSync(RPC_Message message) {
         return sendSync(message);
     }
 }
