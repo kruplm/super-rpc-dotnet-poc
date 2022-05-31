@@ -1,14 +1,56 @@
-using System.Diagnostics;
+using System.Linq;
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using Xunit;
 using Moq;
+using Xunit.Sdk;
+using System.Reflection;
 
 namespace Super.RPC.Tests;
 
-#pragma warning disable VSTHRD200 // Don't want to add "Async" suffix to all async test methods, the names actually represent what the test does
+// Don't want to add "Async" suffix to all async test methods, the names actually represent what the test does
+#pragma warning disable VSTHRD200 
+
+
+
+public class TestLogger : StringWriter
+{
+    static StreamWriter fileWriter;
+
+    public static void Init() {
+        fileWriter = new StreamWriter($"testrun.log");
+        var testLogger = new TestLogger();
+        Console.SetOut(testLogger);
+    }
+
+    public override void WriteLine(string? message) {
+        fileWriter.WriteLine(message);
+        fileWriter.Flush();
+    }
+}
+
+class DisplayTestMethodNameAttribute : BeforeAfterTestAttribute
+{
+    public override void Before(MethodInfo methodUnderTest)
+    {
+        Console.WriteLine("--- Setup for test '{0}.'", methodUnderTest.Name);
+    }
+
+    public override void After(MethodInfo methodUnderTest)
+    {
+        Console.WriteLine("--- TearDown for test '{0}.'", methodUnderTest.Name);
+        Console.WriteLine();
+    }
+}
+
+
 public class SuperRpcTests
 {
+    static SuperRpcTests() {
+        TestLogger.Init();
+    }
+
     RPCSendSyncAsyncReceiveChannel channel1;
     RPCSendSyncAsyncReceiveChannel channel2;
 
@@ -17,7 +59,6 @@ public class SuperRpcTests
 
     public SuperRpcTests()
     {
-
         Func<RPC_Message, object?> sendSync1 = (msg) => {
             RPC_Message? replyMessage = null;
             channel2!.Received(msg, new RPCSendSyncAndReceiveChannel(reply => replyMessage = reply));
@@ -44,6 +85,7 @@ public class SuperRpcTests
     }
 
     [Fact]
+    [DisplayTestMethodName]
     void MockChannel_SyncWorks() {
         var testMsg = new RPC_GetDescriptorsMessage();
         var testReply = new RPC_DescriptorsResultMessage();
@@ -58,6 +100,7 @@ public class SuperRpcTests
     }
 
     // [Fact]
+    [DisplayTestMethodName]
     Task MockChannel_AsyncWorks() {
         var taskSource = new TaskCompletionSource();
 
@@ -157,33 +200,39 @@ public class SuperRpcTests
         }
 
         [Fact]
+        [DisplayTestMethodName]
         void SyncFuncSuccess() {
             var actual = proxyObj.SyncFunc(2, 3);
             Assert.Equal(5, actual);
         }
 
         [Fact]
+        [DisplayTestMethodName]
         void SyncFuncFail() {
             Assert.ThrowsAny<Exception>(() => proxyObj.FailSyncFunc());
         }
 
         [Fact]
+        [DisplayTestMethodName]
         async Task AsyncFuncSuccess() {
             var result = await proxyObj.AsyncFunc("ping");
             Assert.Equal("ping pong", result);
         }
 
         [Fact]
+        [DisplayTestMethodName]
         async Task AsyncFuncFail() {
             await Assert.ThrowsAsync<ArgumentException>(() => proxyObj.FailAsyncFunc("ping"));
         }
 
         [Fact]
+        [DisplayTestMethodName]
         void ReadonlyProperty() {
             Assert.Equal("readonly", proxyObj.roID);
         }
 
         [Fact]
+        [DisplayTestMethodName]
         void ProxiedProperty() {
             Assert.Equal(1, hostObj.Counter);
             Assert.Equal(1, proxyObj.Counter);
@@ -195,6 +244,7 @@ public class SuperRpcTests
         }
 
         [Fact]
+        [DisplayTestMethodName]
         async Task Events() {
             var mockListener = new Mock<Action>();
             var completed = new TaskCompletionSource();
@@ -212,6 +262,7 @@ public class SuperRpcTests
     public class HostFunctionTests : SuperRpcTests
     {
         [Fact]
+        [DisplayTestMethodName]
         void SyncSuccess() {
             var hostFunc = new Mock<Func<int, int>>();
 
@@ -229,6 +280,7 @@ public class SuperRpcTests
         }
 
         [Fact]
+        [DisplayTestMethodName]
         void SyncFailure() {
             var hostFunc = new Mock<Func<int, int>>();
 
@@ -244,6 +296,7 @@ public class SuperRpcTests
         }
 
         [Fact]
+        [DisplayTestMethodName]
         async Task AsyncSuccess() {
             var hostFunc = new Mock<Func<int, Task<int>>>();
 
@@ -261,6 +314,7 @@ public class SuperRpcTests
         }
 
         [Fact]
+        [DisplayTestMethodName]
         async Task AsyncFailure() {
             var hostFunc = new Mock<Func<int, Task<int>>>();
 
@@ -276,6 +330,7 @@ public class SuperRpcTests
         }
 
         [Fact]
+        [DisplayTestMethodName]
         async Task PassingATask_Completed() {
             var giveMeATask = async (Task<string> t) => "hello " + await t;
             rpc1.RegisterHostFunction("giveMeATask", giveMeATask);
@@ -287,6 +342,7 @@ public class SuperRpcTests
         }
         
         [Fact]
+        [DisplayTestMethodName]
         async Task PassingATask_Delayed() {
             var giveMeATask = async (Task<string> t) => "hi " + await t;
             rpc1.RegisterHostFunction("giveMeATask", giveMeATask);
@@ -298,6 +354,7 @@ public class SuperRpcTests
         }
         
         [Fact]
+        [DisplayTestMethodName]
         async Task PassingATask_Error() {
             var giveMeATask = async (Task<string> t) => "hi " + await t;
             rpc1.RegisterHostFunction("giveMeATask", giveMeATask);
@@ -309,6 +366,7 @@ public class SuperRpcTests
         }
 
         [Fact]
+        [DisplayTestMethodName]
         async Task PassingAnAsyncFunc_Success() {
             var giveMeAFunc = (Func<Task<string>, Task<string>> func) => func(Task.FromResult("result"));
 
@@ -321,6 +379,7 @@ public class SuperRpcTests
         }
         
         [Fact]
+        [DisplayTestMethodName]
         async Task PassingAnAsyncFunc_Error() {
             var giveMeAFunc = (Func<Task<string>, Task<string>> func) => func(Task.FromException<string>(new InvalidOperationException("error")));
 
@@ -401,6 +460,7 @@ public class SuperRpcTests
         }
 
         [Fact]
+        [DisplayTestMethodName]
         void Ctor() {
             TestClass.Counter = 0;
 
@@ -412,6 +472,7 @@ public class SuperRpcTests
         }
 
         [Fact]
+        [DisplayTestMethodName]
         async Task ReturningAnInstance() {
             var getInstance = rpc2.GetProxyFunction<Func<Task<ITestClass>>>("getInstance");
             var instance = await getInstance();
@@ -421,6 +482,7 @@ public class SuperRpcTests
         }
         
         [Fact]
+        [DisplayTestMethodName]
         async Task ProxiedProperty() {
             var getInstance = rpc2.GetProxyFunction<Func<Task<ITestClass>>>("getInstance");
             var instance = await getInstance();
@@ -438,16 +500,19 @@ public class SuperRpcTests
     public class Errors : SuperRpcTests {
 
         [Fact]
+        [DisplayTestMethodName]
         void NoObjectRegisteredWithId() {
             Assert.Throws<ArgumentException>(() => rpc1.GetProxyObject<object>("fake"));
         }
 
         [Fact]
+        [DisplayTestMethodName]
         void NoClassRegisteredWithId() {
             Assert.Throws<ArgumentException>(() => rpc1.GetProxyClass<object>("fake"));
         }
 
         [Fact]
+        [DisplayTestMethodName]
         void NoFunctionRegisteredWithId() {
             Assert.Throws<ArgumentException>(() => rpc1.GetProxyFunction<Action>("fake"));
         }

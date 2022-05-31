@@ -1,7 +1,7 @@
-using System.Diagnostics;
 using System;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -34,7 +34,8 @@ public class SuperRPC
     private ClassDescriptors? remoteClassDescriptors;
     private TaskCompletionSource<bool>? remoteDescriptorsReceived = null;
 
-    private readonly Dictionary<string, AsyncCallbackEntry> asyncCallbacks = new Dictionary<string, AsyncCallbackEntry>();
+    private readonly ConcurrentDictionary<string, AsyncCallbackEntry> asyncCallbacks = new ConcurrentDictionary<string, AsyncCallbackEntry>();
+    private readonly ConcurrentDictionary<string, object?> asyncCallbackValues = new ConcurrentDictionary<string, object?>();
     private int callId = 0;
 
     private readonly ProxyObjectRegistry proxyObjectRegistry = new ProxyObjectRegistry();
@@ -95,7 +96,7 @@ public class SuperRPC
         var replyChannel = eventArgs.replyChannel ?? Channel;
         CurrentContext = new CallContext(replyChannel!, eventArgs.context);
 
-        Debug.WriteLine($"[{DebugId}] MessageReceived {message}");
+        Console.WriteLine($"[{DebugId}] MessageReceived {message}");
 
         if (message.rpc_marker != "srpc") return;   // TODO: throw?
 
@@ -118,16 +119,21 @@ public class SuperRPC
                 break;
             case RPC_FnResultMessageBase fnResult: {
                 if (fnResult.callType == FunctionReturnBehavior.Async) {
-                    Debug.WriteLine($"[{DebugId}] - MessageReceived getting asyncCallback for callID={fnResult.callId}");
-                    if (asyncCallbacks.TryGetValue(fnResult.callId!, out var entry)) {
+                    Console.WriteLine($"[{DebugId}] - MessageReceived getting asyncCallback for callID={fnResult.callId}");
+
+                    if (asyncCallbacks.Remove(fnResult.callId!, out var entry)) {
                         if (fnResult.success) {
-                            Debug.WriteLine($"[{DebugId}] - MessageReceived success()");
+                            Console.WriteLine($"[{DebugId}] - MessageReceived success()");
                             var result = ProcessValueAfterDeserialization(fnResult.result, CurrentContext, entry.type);
                             entry.complete(result);
                         } else {
                             entry.fail(new ArgumentException(fnResult.result?.ToString()));
                         }
-                        asyncCallbacks.Remove(fnResult.callId!);
+                    } else {
+                        // If the Task is not registered yet, we still store the value (result) that we're going to use to complete it.
+                        // In case it's a success=true, we cannot process it yet, because we don't know the exact type (resultType)
+                        // but if it's an exception, we store an Exception object, so later we can figure out the success state based on that.
+                        asyncCallbackValues.TryAdd(fnResult.callId!, fnResult.success ? fnResult.result : new ArgumentException(fnResult.result?.ToString()));
                     }
                 }
                 break;
@@ -150,7 +156,7 @@ public class SuperRPC
 
         context.replySent = new TaskCompletionSource();
 
-        Debug.WriteLine($"[{DebugId}] CallTargetFunction context.replySent = new Task ({context.replySent.Task.Id})");
+        Console.WriteLine($"[{DebugId}] CallTargetFunction context.replySent = new Task ({context.replySent.Task.Id})");
 
         try {
             switch (message.action) {
@@ -191,7 +197,7 @@ public class SuperRPC
                         context,
                         method.GetParameters().Select(param => param.ParameterType).ToArray(),
                         entry.value?.Arguments);
-                    Debug.WriteLine($"[{DebugId}] fn_call objId={message.objId}");
+                    Console.WriteLine($"[{DebugId}] fn_call objId={message.objId}");
                     result = entry.obj.DynamicInvoke(args);
                     break;
                 }
@@ -221,7 +227,7 @@ public class SuperRPC
         if (message.callType == FunctionReturnBehavior.Async) {
             
             void SendAsyncResult(bool success, object? result) {
-                Debug.WriteLine($"[{DebugId}] - CallTargetFunction - SendAsyncResult, callId={message.callId}");
+                Console.WriteLine($"[{DebugId}] - CallTargetFunction - SendAsyncResult, callId={message.callId}");
                 SendAsyncIfPossible(new RPC_AsyncFnResultMessage {
                     success = success,
                     result = result,
@@ -230,9 +236,9 @@ public class SuperRPC
             }
 
             if (result is Task task) {
-                Debug.WriteLine($"[{DebugId}] - CallTargetFunction - result is Task ({task.Id})");
+                Console.WriteLine($"[{DebugId}] - CallTargetFunction - result is Task ({task.Id})");
                 SendResultOnTaskCompletion(task, SendAsyncResult, context);
-                Debug.WriteLine($"[{DebugId}] SetResult for context.replySent (task {context.replySent.Task.Id})");
+                Console.WriteLine($"[{DebugId}] SetResult for context.replySent (task {context.replySent.Task.Id})");
             }  else {
                 SendAsyncResult(success, ProcessValueBeforeSerialization(result, context));
             }
@@ -244,7 +250,7 @@ public class SuperRPC
             }, context.replyChannel);
             context.replySent.SetResult();
         } else if (!success) {
-            Debug.WriteLine(result);
+            Console.WriteLine(result);
         }
     }
 
@@ -367,10 +373,10 @@ public class SuperRPC
 
     private void CallAfterReplySent(CallContext context, Action action) {
         if (context.replySent is not null) {
-            Debug.WriteLine($"[{DebugId}] CallAfterReplySent - context.replySent is not null (task {context.replySent.Task.Id})");
+            Console.WriteLine($"[{DebugId}] CallAfterReplySent - context.replySent is not null (task {context.replySent.Task.Id})");
             context.replySent.Task.ContinueWith(_ => action());
         } else {
-            Debug.WriteLine($"[{DebugId}] CallAfterReplySent - context.replySent is null calling action");
+            Console.WriteLine($"[{DebugId}] CallAfterReplySent - context.replySent is null calling action");
             action();
         }
     }
@@ -378,13 +384,13 @@ public class SuperRPC
     private async void SendResultOnTaskCompletion(Task task, Action<bool, object?> sendResult, CallContext context) {
         var taskType = task.GetType();
         try {
-            Debug.WriteLine($"[{DebugId}] SendResultOnTaskCompletion - awaiting Task ({task.Id})..");
+            Console.WriteLine($"[{DebugId}] SendResultOnTaskCompletion - awaiting Task ({task.Id})..");
             await task;
         } catch (Exception) {
             // Could not find another way to wait for the task, but ignore any exceptions/failures.
         }
 
-        Debug.WriteLine($"[{DebugId}] SendResultOnTaskCompletion - Task ({task.Id}) completed, sending result..");
+        Console.WriteLine($"[{DebugId}] SendResultOnTaskCompletion - Task ({task.Id}) completed, sending result..");
 
         if (taskType.IsGenericType && taskType.GetGenericArguments()[0].Name != "VoidTaskResult") {
             sendResult(!task.IsFaulted,
@@ -433,12 +439,12 @@ public class SuperRPC
         const BindingFlags PropBindFlags = BindingFlags.Public | BindingFlags.Instance;
 
         if (obj is Task task) {
-            Debug.WriteLine($"[{DebugId}] ProcessValueB4, obj is Task ({task.Id})");
+            Console.WriteLine($"[{DebugId}] ProcessValueB4, obj is Task ({task.Id})");
             string? objId = null;
             if (!hostObjectRegistry.ByObj.ContainsKey(obj)) {
 
                 void SendResult(bool success, object? result) {
-                    Debug.WriteLine($"[{DebugId}] SendResult - ({result})");
+                    Console.WriteLine($"[{DebugId}] SendResult - ({result})");
 
                     SendAsyncIfPossible(new RPC_AsyncFnResultMessage {
                         success = success,
@@ -558,7 +564,7 @@ public class SuperRPC
                 // special cases for _rpc_type=[host]object/function
                 switch (rpcObj._rpc_type) {
                     case "function": {
-                        Debug.WriteLine($"[{DebugId}] ProcessValueAf - RPC_Obj func");
+                        Console.WriteLine($"[{DebugId}] ProcessValueAf - RPC_Obj func");
                         // If the proxy function is "sync" we don't want to reply on the replyChannel, 
                         // because the fn call that this proxy function is passed into
                         // might also want to return its result synchronously.
@@ -570,7 +576,7 @@ public class SuperRPC
                         break;
                     }
                     case "object": {
-                        Debug.WriteLine($"[{DebugId}] ProcessValueAf - RPC_Obj func");
+                        Console.WriteLine($"[{DebugId}] ProcessValueAf - RPC_Obj obj");
 
                         // If a function on the proxy object is "sync" we don't want to reply on the replyChannel, 
                         // because the fn call that this proxy object is passed into
@@ -663,11 +669,21 @@ public class SuperRPC
         if (obj is not null) return obj;
 
         if (classId == "Promise") {
-            Debug.WriteLine($"[{DebugId}] GetProxyInstance - Promise objId={objId}");
+            Console.WriteLine($"[{DebugId}] GetProxyInstance - Promise objId={objId}");
             
             var resultType = type == typeof(Task) ? typeof(object) : UnwrapTaskReturnType(type);
             var asyncCallback = CreateAsyncCallback(resultType);
-            asyncCallbacks.Add(objId, asyncCallback);
+
+            if (asyncCallbackValues.Remove(objId, out var asyncResult)) {
+                if (asyncResult is Exception asyncFailure) {
+                    asyncCallback.fail(asyncFailure);
+                } else {
+                    var result = ProcessValueAfterDeserialization(asyncResult, CurrentContext!, resultType);
+                    asyncCallback.complete(result);
+                }
+            } else {
+                asyncCallbacks.TryAdd(objId, asyncCallback);
+            }
             obj = asyncCallback.task;
         } else
         if (proxyClassRegistry.ByObj.TryGetValue(type, out var proxyClassEntry)) {
@@ -742,8 +758,8 @@ public class SuperRPC
             var ctx = ownCtx ? new CallContext(context.replyChannel) { replySent = new TaskCompletionSource() } : context;
 
             var asyncCallback = CreateAsyncCallback(UnwrapTaskReturnType(typeof(TReturn)));
-            asyncCallbacks.Add(callId.ToString(), asyncCallback);
-            Debug.WriteLine($"[{DebugId}] - AsyncProxyFunc asyncCallback added, callId={callId}");
+            asyncCallbacks.TryAdd(callId.ToString(), asyncCallback);
+            Console.WriteLine($"[{DebugId}] - AsyncProxyFunc asyncCallback added, callId={callId}");
 
             SendAsyncIfPossible(new RPC_AnyCallTypeFnCallMessage {
                 action = action,
@@ -755,7 +771,7 @@ public class SuperRPC
             }, ctx.replyChannel);
 
             if (ownCtx) {
-                Debug.WriteLine($"[{DebugId}] AsyncProxyFunc ownCtx ctx.replySent.SetResult (task {ctx.replySent.Task.Id})");
+                Console.WriteLine($"[{DebugId}] AsyncProxyFunc ownCtx ctx.replySent.SetResult (task {ctx.replySent!.Task.Id})");
                 ctx.replySent.SetResult();
             }
             

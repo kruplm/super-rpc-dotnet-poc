@@ -20,7 +20,7 @@ namespace Super.RPC;
 public record SuperRPCWebSocket(WebSocket webSocket, object? context)
 {
     public RPCReceiveChannel? ReceiveChannel;
-    public IRPCSendAsyncChannel SendChannel;
+    public IRPCSendAsyncChannel? SendChannel;
 
     // This is for the websocket client case. You need to call StartReceivingAsync()
     // after connecting the SuperRPC instance to SuperRPCWebSocket.ReceiveChannel
@@ -118,7 +118,7 @@ public record SuperRPCWebSocket(WebSocket webSocket, object? context)
                         var messageBuffer = readResult.Buffer.Slice(readResult.Buffer.Start, messageLength);
                         var message = ParseMessage(messageBuffer);
                         if (message != null) {
-                            ReceiveChannel.Received(message, SendChannel, context ?? SendChannel);
+                            ReceiveChannel?.Received(message, SendChannel, context ?? SendChannel);
                         }
                         pipe.Reader.AdvanceTo(messageBuffer.End);
                         messageLength = 0;
