@@ -12,8 +12,6 @@ namespace Super.RPC.Tests;
 // Don't want to add "Async" suffix to all async test methods, the names actually represent what the test does
 #pragma warning disable VSTHRD200 
 
-
-
 public class TestLogger : StringWriter
 {
     static StreamWriter fileWriter = new StreamWriter($"testrun.log");
@@ -32,22 +30,22 @@ class DisplayTestMethodNameAttribute : BeforeAfterTestAttribute
 {
     public override void Before(MethodInfo methodUnderTest)
     {
-        Console.WriteLine("--- Setup for test '{0}'.", methodUnderTest.Name);
+        // Console.WriteLine("--- Setup for test '{0}'.", methodUnderTest.Name);
     }
 
     public override void After(MethodInfo methodUnderTest)
     {
-        Console.WriteLine("--- TearDown for test '{0}'.", methodUnderTest.Name);
-        Console.WriteLine();
+        // Console.WriteLine("--- TearDown for test '{0}'.", methodUnderTest.Name);
+        // Console.WriteLine();
     }
 }
 
 
 public class SuperRpcTests
 {
-    static SuperRpcTests() {
-        TestLogger.Init();
-    }
+    // static SuperRpcTests() {
+    //     TestLogger.Init();
+    // }
 
     RPCSendSyncAsyncReceiveChannel channel1;
     RPCSendSyncAsyncReceiveChannel channel2;
