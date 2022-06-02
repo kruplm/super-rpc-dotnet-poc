@@ -34,8 +34,8 @@ public class SuperRPC
     private ClassDescriptors? remoteClassDescriptors;
     private TaskCompletionSource<bool>? remoteDescriptorsReceived = null;
 
-    private readonly ConcurrentDictionary<string, AsyncCallbackEntry> asyncCallbacks = new ConcurrentDictionary<string, AsyncCallbackEntry>();
-    private readonly ConcurrentDictionary<string, object?> asyncCallbackValues = new ConcurrentDictionary<string, object?>();
+    private readonly Dictionary<string, AsyncCallbackEntry> asyncCallbacks = new Dictionary<string, AsyncCallbackEntry>();
+    private readonly Dictionary<string, object?> asyncCallbackValues = new Dictionary<string, object?>();
     private int callId = 0;
 
     private readonly ProxyObjectRegistry proxyObjectRegistry = new ProxyObjectRegistry();
@@ -121,7 +121,17 @@ public class SuperRPC
                 if (fnResult.callType == FunctionReturnBehavior.Async) {
                     Console.WriteLine($"[{DebugId}] - MessageReceived getting asyncCallback for callID={fnResult.callId}");
 
-                    if (asyncCallbacks.Remove(fnResult.callId!, out var entry)) {
+                    AsyncCallbackEntry? entry = null;
+                    lock (asyncCallbacks) {
+                        if (!asyncCallbacks.Remove(fnResult.callId!, out entry)) {
+                            // If the Task is not registered yet, we still store the value (result) that we're going to use to complete it.
+                            // In case it's a success=true, we cannot process it yet, because we don't know the exact type (resultType)
+                            // but if it's an exception, we store an Exception object, so later we can figure out the success state based on that.
+                            asyncCallbackValues.Add(fnResult.callId!, fnResult.success ? fnResult.result : new ArgumentException(fnResult.result?.ToString()));
+                        }
+                    }
+
+                    if (entry is not null) {
                         if (fnResult.success) {
                             Console.WriteLine($"[{DebugId}] - MessageReceived success()");
                             var result = ProcessValueAfterDeserialization(fnResult.result, CurrentContext, entry.type);
@@ -129,11 +139,6 @@ public class SuperRPC
                         } else {
                             entry.fail(new ArgumentException(fnResult.result?.ToString()));
                         }
-                    } else {
-                        // If the Task is not registered yet, we still store the value (result) that we're going to use to complete it.
-                        // In case it's a success=true, we cannot process it yet, because we don't know the exact type (resultType)
-                        // but if it's an exception, we store an Exception object, so later we can figure out the success state based on that.
-                        asyncCallbackValues.TryAdd(fnResult.callId!, fnResult.success ? fnResult.result : new ArgumentException(fnResult.result?.ToString()));
                     }
                 }
                 break;
@@ -680,16 +685,22 @@ public class SuperRPC
             var resultType = type == typeof(Task) ? typeof(object) : UnwrapTaskReturnType(type);
             var asyncCallback = CreateAsyncCallback(resultType);
 
-            if (asyncCallbackValues.Remove(objId, out var asyncResult)) {
+            object? asyncResult = null;
+            lock (asyncCallbacks) {
+                if (!asyncCallbackValues.Remove(objId, out asyncResult)) {
+                    asyncCallbacks.Add(objId, asyncCallback);
+                }
+            }
+            
+            if (asyncResult is not null) {
                 if (asyncResult is Exception asyncFailure) {
                     asyncCallback.fail(asyncFailure);
                 } else {
                     var result = ProcessValueAfterDeserialization(asyncResult, CurrentContext!, resultType);
                     asyncCallback.complete(result);
                 }
-            } else {
-                asyncCallbacks.TryAdd(objId, asyncCallback);
             }
+
             obj = asyncCallback.task;
         } else
         if (proxyClassRegistry.ByObj.TryGetValue(type, out var proxyClassEntry)) {
@@ -764,7 +775,8 @@ public class SuperRPC
             var ctx = ownCtx ? new CallContext(context.replyChannel) { replySent = new TaskCompletionSource() } : context;
 
             var asyncCallback = CreateAsyncCallback(UnwrapTaskReturnType(typeof(TReturn)));
-            asyncCallbacks.TryAdd(callId.ToString(), asyncCallback);
+            lock (asyncCallbacks) asyncCallbacks.Add(callId.ToString(), asyncCallback);
+
             Console.WriteLine($"[{DebugId}] - AsyncProxyFunc asyncCallback added, callId={callId}");
 
             SendAsyncIfPossible(new RPC_AnyCallTypeFnCallMessage {

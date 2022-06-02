@@ -16,27 +16,31 @@ public class ProxyObjectRegistry {
     private readonly ConditionalWeakTable<object, string> byObj = new ConditionalWeakTable<object, string>();
 
     public void Register(string objId, object obj, Action? dispose = null) {
-        byId.Add(objId, new DependentHandle(obj, new NotifyWhenDisposed(() => {
-            byId.Remove(objId);
-            dispose?.Invoke();
-        })));
-        byObj.Add(obj, objId);
+        lock (byId) {
+            byId.Add(objId, new DependentHandle(obj, new NotifyWhenDisposed(() => {
+                byId.Remove(objId);
+                dispose?.Invoke();
+            })));
+            byObj.Add(obj, objId);
+        }
     }
 
     public string? GetId(object obj) {
-        return byObj.TryGetValue(obj, out var objId) ? objId : null;
+        lock (byId) return byObj.TryGetValue(obj, out var objId) ? objId : null;
     }
 
     public object? Get(string objId) {
-        if (byId.TryGetValue(objId, out var handle)) {
-            var obj = handle.Target;
-            if (obj is not null) {
-                return obj;
-            } else {
-                byId.Remove(objId);
+        lock (byId) {
+            if (byId.TryGetValue(objId, out var handle)) {
+                var obj = handle.Target;
+                if (obj is not null) {
+                    return obj;
+                } else {
+                    byId.Remove(objId);
+                }
             }
+            return null;
         }
-        return null;
     }
 
 }

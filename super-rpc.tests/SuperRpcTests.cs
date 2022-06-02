@@ -32,12 +32,12 @@ class DisplayTestMethodNameAttribute : BeforeAfterTestAttribute
 {
     public override void Before(MethodInfo methodUnderTest)
     {
-        Console.WriteLine("--- Setup for test '{0}.'", methodUnderTest.Name);
+        Console.WriteLine("--- Setup for test '{0}'.", methodUnderTest.Name);
     }
 
     public override void After(MethodInfo methodUnderTest)
     {
-        Console.WriteLine("--- TearDown for test '{0}.'", methodUnderTest.Name);
+        Console.WriteLine("--- TearDown for test '{0}'.", methodUnderTest.Name);
         Console.WriteLine();
     }
 }
@@ -440,7 +440,7 @@ public class SuperRpcTests
         }
 
         public record TestContainer(TestClass? Nested) {
-            public TestContainer(): this((TestClass)null) {}
+            public TestContainer(): this((TestClass?)null) {}
         }
         public record TestContainer2(ITestClass Nested);
 
@@ -463,12 +463,8 @@ public class SuperRpcTests
                     Functions = new [] { new FunctionDescriptor { Name = "GetDescription", Returns = FunctionReturnBehavior.Sync } }
                 }
             });
-            rpc1.RegisterHostClass<TestContainer>("testContainer", new ClassDescriptor {
-                Instance = new ObjectDescriptor {
-                    ReadonlyProperties = new [] { "Nested" }
-                }
-            });
-            rpc1.RegisterProxyClass<TestContainer>("testContainer2");
+            
+            rpc1.RegisterProxyClass<TestContainer>("testContainer");
 
             testInstance = new TestClass { Name = "Test1" };
             passedInstance = null;
@@ -498,7 +494,7 @@ public class SuperRpcTests
 
             rpc1.SendRemoteDescriptors();
             rpc2.RegisterProxyClass<ITestClass>("testClass");
-            rpc2.RegisterHostClass<TestContainer2>("testContainer2", new ClassDescriptor {
+            rpc2.RegisterHostClass<TestContainer2>("testContainer", new ClassDescriptor {
                 Instance = new ObjectDescriptor{
                     ReadonlyProperties = new [] { "Nested" }
                 }
