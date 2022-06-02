@@ -16,12 +16,10 @@ namespace Super.RPC.Tests;
 
 public class TestLogger : StringWriter
 {
-    static StreamWriter fileWriter;
+    static StreamWriter fileWriter = new StreamWriter($"testrun.log");
 
     public static void Init() {
-        fileWriter = new StreamWriter($"testrun.log");
-        var testLogger = new TestLogger();
-        Console.SetOut(testLogger);
+        Console.SetOut(new TestLogger());
     }
 
     public override void WriteLine(string? message) {
@@ -57,7 +55,7 @@ public class SuperRpcTests
     SuperRPC rpc1;
     SuperRPC rpc2;
 
-    public SuperRpcTests()
+    public SuperRpcTests(bool connectChannels = true)
     {
         Func<RPC_Message, object?> sendSync1 = (msg) => {
             RPC_Message? replyMessage = null;
@@ -71,8 +69,8 @@ public class SuperRpcTests
             return replyMessage;
         };
 
-        Action<RPC_Message> sendAsync1 = (msg) => Task.Run(() => channel2!.Received(msg));
-        Action<RPC_Message> sendAsync2 = (msg) => Task.Run(() => channel1!.Received(msg));
+        Action<RPC_Message> sendAsync1 = (msg) => Task.Run(() => channel2!.Received(msg, channel2));
+        Action<RPC_Message> sendAsync2 = (msg) => Task.Run(() => channel1!.Received(msg, channel1));
 
         channel1 = new RPCSendSyncAsyncReceiveChannel(sendSync1, sendAsync1);
         channel2 = new RPCSendSyncAsyncReceiveChannel(sendSync2, sendAsync2);
@@ -80,46 +78,53 @@ public class SuperRpcTests
         rpc1 = new SuperRPC(() => Guid.NewGuid().ToString(), "RPC1");
         rpc2 = new SuperRPC(() => Guid.NewGuid().ToString(), "RPC2");
 
-        rpc1.Connect(channel1);
-        rpc2.Connect(channel2);
+        if (connectChannels) {
+            rpc1.Connect(channel1);
+            rpc2.Connect(channel2);
+        }
     }
 
-    [Fact]
-    [DisplayTestMethodName]
-    void MockChannel_SyncWorks() {
-        var testMsg = new RPC_GetDescriptorsMessage();
-        var testReply = new RPC_DescriptorsResultMessage();
+    public class MockChannelTests : SuperRpcTests {
+        public MockChannelTests(): base(false) {}
 
-        channel1.MessageReceived += (sender, evtArgs) => {
-            Assert.Equal(testMsg, evtArgs.message);
-            (evtArgs.replyChannel as IRPCSendSyncChannel)!.SendSync(testReply);
-        };
+        [Fact]
+        [DisplayTestMethodName]
+        void MockChannel_SyncWorks() {
+            var testMsg = new RPC_GetDescriptorsMessage();
+            var testReply = new RPC_DescriptorsResultMessage();
 
-        var reply = channel2.SendSync(testMsg);
-        Assert.Equal(testReply, reply);
-    }
+            channel1.MessageReceived += (sender, evtArgs) => {
+                Assert.Equal(testMsg, evtArgs.message);
+                (evtArgs.replyChannel as IRPCSendSyncChannel)!.SendSync(testReply);
+            };
 
-    // [Fact]
-    [DisplayTestMethodName]
-    Task MockChannel_AsyncWorks() {
-        var taskSource = new TaskCompletionSource();
+            var reply = channel2.SendSync(testMsg);
+            Assert.Equal(testReply, reply);
+        }
 
-        var testMsg = new RPC_GetDescriptorsMessage();
-        var testReply = new RPC_DescriptorsResultMessage();
+        [Fact]
+        [DisplayTestMethodName]
+        Task MockChannel_AsyncWorks() {
+            var taskSource = new TaskCompletionSource();
 
-        channel2.MessageReceived += (sender, evtArgs) => {
-            Assert.Equal(testReply, evtArgs.message);
-            taskSource.SetResult();
-        };
+            var testMsg = new RPC_GetDescriptorsMessage();
+            var testReply = new RPC_DescriptorsResultMessage();
 
-        channel1.MessageReceived += (sender, evtArgs) => {
-            Assert.Equal(testMsg, evtArgs.message);
-            (evtArgs.replyChannel as IRPCSendAsyncChannel)!.SendAsync(testReply);
-        };
+            channel2.MessageReceived += (sender, evtArgs) => {
+                Assert.Equal(testReply, evtArgs.message);
+                taskSource.SetResult();
+            };
 
-        channel2.SendAsync(testMsg);
+            channel1.MessageReceived += (sender, evtArgs) => {
+                Assert.Equal(testMsg, evtArgs.message);
+                (evtArgs.replyChannel as IRPCSendAsyncChannel)!.SendAsync(testReply);
+            };
 
-        return taskSource.Task;
+            channel2.SendAsync(testMsg);
+
+            return taskSource.Task;
+        }
+
     }
 
     public class HostObjectTests : SuperRpcTests
@@ -430,8 +435,19 @@ public class SuperRpcTests
             }
         }
 
+        public interface ITestContainer {
+            ITestClass Nested {get; set;}
+        }
+
+        public record TestContainer(TestClass? Nested) {
+            public TestContainer(): this((TestClass)null) {}
+        }
+        public record TestContainer2(ITestClass Nested);
+
         Func<string, ITestClass> proxyClassFactory;
         TestClass testInstance;
+        TestClass? passedInstance;
+        TestClass? passedNestedInstance;
 
         public HostClassTests() {
             rpc1.RegisterHostClass<TestClass>("testClass", new ClassDescriptor {
@@ -447,14 +463,47 @@ public class SuperRpcTests
                     Functions = new [] { new FunctionDescriptor { Name = "GetDescription", Returns = FunctionReturnBehavior.Sync } }
                 }
             });
+            rpc1.RegisterHostClass<TestContainer>("testContainer", new ClassDescriptor {
+                Instance = new ObjectDescriptor {
+                    ReadonlyProperties = new [] { "Nested" }
+                }
+            });
+            rpc1.RegisterProxyClass<TestContainer>("testContainer2");
+
             testInstance = new TestClass { Name = "Test1" };
+            passedInstance = null;
+            passedNestedInstance = null;
 
             rpc1.RegisterHostFunction("getInstance", () => testInstance, new FunctionDescriptor {
                 Returns = FunctionReturnBehavior.Async
             });
 
+            rpc1.RegisterHostFunction("setInstance", 
+                (TestClass instance) => {
+                    passedInstance = instance;
+                }, 
+                new FunctionDescriptor {
+                    Returns = FunctionReturnBehavior.Async
+                }
+            );
+
+            rpc1.RegisterHostFunction("setNestedInstance", 
+                (TestContainer container) => {
+                    passedNestedInstance = container.Nested;
+                }, 
+                new FunctionDescriptor {
+                    Returns = FunctionReturnBehavior.Async
+                }
+            );
+
             rpc1.SendRemoteDescriptors();
             rpc2.RegisterProxyClass<ITestClass>("testClass");
+            rpc2.RegisterHostClass<TestContainer2>("testContainer2", new ClassDescriptor {
+                Instance = new ObjectDescriptor{
+                    ReadonlyProperties = new [] { "Nested" }
+                }
+            });
+            rpc2.SendRemoteDescriptors();
 
             proxyClassFactory = rpc2.GetProxyClass<ITestClass>("testClass");
         }
@@ -494,6 +543,29 @@ public class SuperRpcTests
             Assert.Equal("green Test1", instance.GetDescription());
         }
 
+        [Fact]
+        [DisplayTestMethodName]
+        async Task SendingBackAProxyInstance() {
+            var getInstance = rpc2.GetProxyFunction<Func<Task<ITestClass>>>("getInstance");
+            var setInstance = rpc2.GetProxyFunction<Func<ITestClass, Task>>("setInstance");
+
+            var instance = await getInstance();
+            await setInstance(instance);
+
+            Assert.Equal(testInstance, passedInstance);
+        }
+
+        [Fact]
+        [DisplayTestMethodName]
+        async Task SendingBackANestedProxyInstance() {
+            var getInstance = rpc2.GetProxyFunction<Func<Task<ITestClass>>>("getInstance");
+            var setNestedInstance = rpc2.GetProxyFunction<Func<TestContainer2, Task>>("setNestedInstance");
+
+            var instance = await getInstance();
+            await setNestedInstance(new TestContainer2(instance));
+
+            Assert.Equal(testInstance, passedNestedInstance);
+        }
 
     }
 

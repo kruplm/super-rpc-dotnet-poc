@@ -583,7 +583,8 @@ public class SuperRPC
                         // might also want to return its result synchronously.
                         var channel = context.replyChannel as IRPCSendAsyncChannel ?? Channel;
                         if (type is not null && rpcObj is RPC_Object rpcObj3) {
-                            obj = GetOrCreateProxyInstance(rpcObj.objId, rpcObj3.classId, rpcObj3.props, type, channel!);
+                            var props = ProcessValueAfterDeserialization(rpcObj3.props, context) as Dictionary<string, object?>;
+                            obj = GetOrCreateProxyInstance(rpcObj.objId, rpcObj3.classId, props, type, channel!);
                         }
                         break;
                     }
@@ -642,6 +643,11 @@ public class SuperRPC
                 var fieldInfo = objType.GetField("_" + name, BindingFlags.NonPublic | BindingFlags.Instance);
                 if (fieldInfo is not null) {
                     fieldInfo.SetValue(obj, value);
+                    continue;
+                }
+                var propInfo = objType.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+                if (propInfo is not null) {
+                    propInfo.SetValue(obj, value);
                 }
             }
         }
@@ -933,6 +939,17 @@ public class SuperRPC
         }
 
         var ifType = GetProxyClassEntry(classId).obj;
+
+        if (ifType.IsClass) {
+            var ctor = ifType.GetConstructor(Type.EmptyTypes);
+            if (ctor is null) throw new InvalidOperationException($"Proxy class {ifType.FullName} has no parameterless constructor.");
+            return (string objId) => ctor.Invoke(null);
+        }
+
+        if (!ifType.IsInterface) {
+            throw new InvalidOperationException($"Proxy class {ifType.FullName} is not a class or an interface.");
+        }
+
         return CreateProxyClass(classId, ifType, descriptor.Instance!, channel);
     }
 
