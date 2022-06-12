@@ -5,6 +5,7 @@ using Xunit;
 using Moq;
 using System.Threading;
 using Castle.DynamicProxy;
+using System.Collections.Generic;
 
 namespace Super.RPC.Tests;
 
@@ -120,4 +121,86 @@ public class SuperRpcWebSocketTests
         await WaitForClosing();
     }
 
+    record CustomObject (string Name);
+
+    async Task TestCustomObjectDeserialization() {
+        var wasCalled = false;
+
+        rpc1.RegisterHostFunction("func2", (CustomObject obj) => {
+            Assert.Equal("TestObject", obj.Name);
+            wasCalled = true;
+        });
+        rpc1.RegisterHostClass<CustomObject>("customObject", new ClassDescriptor {
+            Instance = new ObjectDescriptor {
+                ReadonlyProperties = new [] { "Name" }
+            }
+        });
+
+        await rpc2.RequestRemoteDescriptors();
+
+        var proxyFunc = rpc2.GetProxyFunction<Func<CustomObject, Task>>("func2");
+
+        await proxyFunc(new CustomObject("TestObject"));
+
+        Assert.True(wasCalled);
+    }
+
+    [Fact]
+    async Task RegisterCustomDeserializerWorks() {
+        SuperRPCWebSocket.RegisterCustomDeserializer(rpc1);
+        SuperRPCWebSocket.RegisterCustomDeserializer(rpc2);
+
+        await TestCustomObjectDeserialization();
+    }
+
+    [Fact]
+    async Task CustomObjectDeserializationFails() {
+        await Assert.ThrowsAnyAsync<ArgumentException>(TestCustomObjectDeserialization);
+    }
+
+    [Fact]
+    async Task ArrayDeserialization() {
+        SuperRPCWebSocket.RegisterCustomDeserializer(rpc1);
+        SuperRPCWebSocket.RegisterCustomDeserializer(rpc2);
+
+        var wasCalled = false;
+
+        rpc1.RegisterHostFunction("func3", (string[] names) => {
+            Assert.Equal(2, names.Length);
+            Assert.Equal("John", names[0]);
+            Assert.Equal("Sarah", names[1]);
+            wasCalled = true;
+        });
+
+        await rpc2.RequestRemoteDescriptors();
+
+        var proxyFunc = rpc2.GetProxyFunction<Func<string[], Task>>("func3");
+
+        await proxyFunc(new [] { "John", "Sarah" });
+
+        Assert.True(wasCalled);
+    }
+
+    [Fact]
+    async Task ListDeserialization() {
+        SuperRPCWebSocket.RegisterCustomDeserializer(rpc1);
+        SuperRPCWebSocket.RegisterCustomDeserializer(rpc2);
+        
+        var wasCalled = false;
+
+        rpc1.RegisterHostFunction("func3", (List<string> names) => {
+            Assert.Equal(2, names.Count);
+            Assert.Equal("John", names[0]);
+            Assert.Equal("Sarah", names[1]);
+            wasCalled = true;
+        });
+
+        await rpc2.RequestRemoteDescriptors();
+
+        var proxyFunc = rpc2.GetProxyFunction<Func<List<string>, Task>>("func3");
+
+        await proxyFunc(new List<string> { "John", "Sarah" });
+
+        Assert.True(wasCalled);
+    }
 }

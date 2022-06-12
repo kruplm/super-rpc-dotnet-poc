@@ -390,13 +390,13 @@ public class SuperRPC
         }
     }
 
-    private bool ProcessPropertyValuesBeforeSerialization(object obj, PropertyInfo[] properties, Dictionary<string, object?> propertyBag, CallContext context) {
+    private bool ProcessPropertyValuesBeforeSerialization(object obj, PropertyInfo[] properties, Dictionary<string, object?> propertyBag, CallContext context, HashSet<object> marked) {
         var needToConvert = false;
         foreach (var propInfo in properties) {
             if (!propInfo.CanRead || propInfo.GetIndexParameters().Length > 0) continue;
 
             var value = propInfo.GetValue(obj);
-            var newValue = ProcessValueBeforeSerialization(value, context);
+            var newValue = ProcessValueBeforeSerialization(value, context, marked);
             propertyBag.Add(propInfo.Name, newValue);
 
             if (value is null ? newValue is not null : !value.Equals(newValue)) {
@@ -415,63 +415,77 @@ public class SuperRPC
         return args;
     }
 
-    private object? ProcessValueBeforeSerialization(object? obj, CallContext context) {
-        if (obj is null) return obj;
+    private object? ProcessValueBeforeSerialization(object? obj, CallContext context, HashSet<object>? marked = null) {
+        marked ??= new HashSet<object>();
 
-        var proxyId = proxyObjectRegistry.GetId(obj);
-        if (proxyId is not null) {
-            return obj is Delegate ? new RPC_BaseObj(proxyId, "hostfunction") : new RPC_BaseObj(proxyId, "hostobject");
+        if (obj is null) return null;
+
+        if (marked.Contains(obj)) {
+            return null;
         }
 
-        var objType = obj.GetType();
-        const BindingFlags PropBindFlags = BindingFlags.Public | BindingFlags.Instance;
+        try {
+            marked.Add(obj);
 
-        if (obj is Task task) {
-            string? objId = null;
-            if (!hostObjectRegistry.ByObj.ContainsKey(obj)) {
+            var proxyId = proxyObjectRegistry.GetId(obj);
+            if (proxyId is not null) {
+                return obj is Delegate ? new RPC_BaseObj(proxyId, "hostfunction") : new RPC_BaseObj(proxyId, "hostobject");
+            }
 
-                void SendResult(bool success, object? result) {
-                    SendAsyncIfPossible(new RPC_AsyncFnResultMessage {
-                        success = success,
-                        result = result,
-                        callId = objId
-                    }, context.replyChannel);
+            var objType = obj.GetType();
+            const BindingFlags PropBindFlags = BindingFlags.Public | BindingFlags.Instance;
+
+            if (obj is Task task) {
+                string? objId = null;
+                if (!hostObjectRegistry.ByObj.ContainsKey(obj)) {
+
+                    void SendResult(bool success, object? result) {
+                        SendAsyncIfPossible(new RPC_AsyncFnResultMessage {
+                            success = success,
+                            result = result,
+                            callId = objId
+                        }, context.replyChannel);
+                    }
+
+                    CallAfterReplySent(context, () => SendResultOnTaskCompletion(task, SendResult, context));
                 }
-
-                CallAfterReplySent(context, () => SendResultOnTaskCompletion(task, SendResult, context));
+                objId = RegisterLocalObj(obj);
+                return new RPC_Object(objId, "object", null, "Promise");
             }
-            objId = RegisterLocalObj(obj);
-            return new RPC_Object(objId, "object", null, "Promise");
-        }
 
-        if (hostClassRegistry.ByObj.TryGetValue(objType, out var entry)) {
-            var descriptor = entry.value;
-            var objId = RegisterLocalObj(obj, descriptor.Instance);
-            var propertyBag = new Dictionary<string, object?>();
+            if (hostClassRegistry.ByObj.TryGetValue(objType, out var entry)) {
+                var descriptor = entry.value;
+                var objId = RegisterLocalObj(obj, descriptor.Instance);
+                var propertyBag = new Dictionary<string, object?>();
 
-            if (descriptor.Instance?.ReadonlyProperties is not null) {
-                var propertyInfos = descriptor.Instance.ReadonlyProperties.Select(prop => objType.GetProperty(prop, PropBindFlags)).ToArray();
-                ProcessPropertyValuesBeforeSerialization(obj, propertyInfos!, propertyBag, context);
+                if (descriptor.Instance?.ReadonlyProperties is not null) {
+                    var propertyInfos = descriptor.Instance.ReadonlyProperties.Select(prop => objType.GetProperty(prop, PropBindFlags)).ToArray();
+                    ProcessPropertyValuesBeforeSerialization(obj, propertyInfos!, propertyBag, context, marked);
+                }
+                return new RPC_Object(objId, "object", propertyBag, entry.id);
             }
-            return new RPC_Object(objId, "object", propertyBag, entry.id);
-        }
 
-        if (obj is Delegate func) {
-            var objId = RegisterLocalFunc(func, new FunctionDescriptor());
-            return new RPC_BaseObj(objId, "function");
-        }
-
-        if (objType.IsClass && objType != typeof(string)) {
-            var propertyInfos = objType.GetProperties(PropBindFlags);
-            var propertyBag = new Dictionary<string, object?>();
-
-            if (ProcessPropertyValuesBeforeSerialization(obj, propertyInfos, propertyBag, context)) {
-                var objId = RegisterLocalObj(obj);
-                return new RPC_Object(objId, "object", propertyBag);
+            if (obj is Delegate func) {
+                var objId = RegisterLocalFunc(func, new FunctionDescriptor());
+                return new RPC_BaseObj(objId, "function");
             }
-        }
 
-        return obj;
+            if (objType.IsClass && objType != typeof(string) && !objType.IsArray && 
+                !(objType.IsGenericType && objType.GetGenericTypeDefinition() == typeof(List<>))
+            ) {
+                var propertyInfos = objType.GetProperties(PropBindFlags);
+                var propertyBag = new Dictionary<string, object?>();
+
+                if (ProcessPropertyValuesBeforeSerialization(obj, propertyInfos, propertyBag, context, marked)) {
+                    var objId = RegisterLocalObj(obj);
+                    return new RPC_Object(objId, "object", propertyBag);
+                }
+            }
+
+            return obj;
+        } finally {
+            marked.Remove(obj);
+        }
     }
 
     private object?[] ProcessArgumentsAfterDeserialization(object?[] args, CallContext context, Type[] parameterTypes, ArgumentDescriptor[]? argumentDescriptors) {
