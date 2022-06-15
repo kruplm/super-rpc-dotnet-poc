@@ -1,6 +1,6 @@
 const { SuperRPC } = superrpc;
 
-let rpc, service, squareIt, MyService, testJsHost, testDTO, testServiceInstance;
+let rpc, service, squareIt, MyService, testJsHost, testDTO, testServiceInstance, allWindows;
 
 const ws = new WebSocket('ws://localhost:5050/super-rpc');
 ws.addEventListener('open', async () => {
@@ -15,81 +15,86 @@ ws.addEventListener('open', async () => {
 
     await rpc.requestRemoteDescriptors();
 
-    rpc.registerHostFunction('jsFunc', (s1, s2) => {
-        console.log(s1, s2);
-        return s1 + s2;
-    }, {});
+    const jsBridge = rpc.getProxyObject('jsBridge');
+    allWindows = await jsBridge.GetAllWindows();
 
 
-    rpc.registerHostObject('jsObj', {
-        Add: (x, y) => x + y
-    }, {
-        functions: ['Add']
-    });
 
-    class JsService {
-        Add(a, b) {
-            return a + b;
-        }
-    }
+    // rpc.registerHostFunction('jsFunc', (s1, s2) => {
+    //     console.log(s1, s2);
+    //     return s1 + s2;
+    // }, {});
 
-    rpc.registerHostClass('JsService', JsService, {
-        ctor: {},
-        instance: {
-            functions:[ { name: 'Add', returns: 'async' }]
-        }
-    });
 
-    const jsServiceInstance = new JsService();
-    rpc.registerHostFunction('getJsService', () => jsServiceInstance, {});
+    // rpc.registerHostObject('jsObj', {
+    //     Add: (x, y) => x + y
+    // }, {
+    //     functions: ['Add']
+    // });
 
-    // *** TestService *** //
-    class TestService {
-        Counter = 0;
-        Increment() {
-            this.Counter++;
+    // class JsService {
+    //     Add(a, b) {
+    //         return a + b;
+    //     }
+    // }
 
-            for (const listener of this.listeners) {
-                listener(this.Counter);
-            }
-        }
+    // rpc.registerHostClass('JsService', JsService, {
+    //     ctor: {},
+    //     instance: {
+    //         functions:[ { name: 'Add', returns: 'async' }]
+    //     }
+    // });
 
-        listeners = [];
+    // const jsServiceInstance = new JsService();
+    // rpc.registerHostFunction('getJsService', () => jsServiceInstance, {});
 
-        addEventListener(event, listener) {
-            if (event === 'CounterChanged') {
-                this.listeners.push(listener);
-            }
-        }
-        removeEventListener(event, listener) {
-            if (event === 'CounterChanged') {
-                const idx = this.listeners.indexOf(listener);
-                if (idx >= 0) {
-                    this.listeners.splice(idx, 1);
-                }
-            }
-        }
-    }
-    rpc.registerHostClass('TestService', TestService, {
-        instance: {
-            functions:[
-                { name: 'Increment', returns: 'void' },
-            ],
-            proxiedProperties: ['Counter'],
-            events: ['CounterChanged']
-        }
-    });
+    // // *** TestService *** //
+    // class TestService {
+    //     Counter = 0;
+    //     Increment() {
+    //         this.Counter++;
 
-    testServiceInstance = new TestService();
-    rpc.registerHostFunction('getTestService', () => testServiceInstance, {});
+    //         for (const listener of this.listeners) {
+    //             listener(this.Counter);
+    //         }
+    //     }
 
-    rpc.sendRemoteDescriptors();
+    //     listeners = [];
 
-    service = rpc.getProxyObject('service');
-    squareIt = rpc.getProxyFunction('squareIt');
-    MyService = rpc.getProxyClass('MyService');
-    testJsHost = rpc.getProxyFunction('testJsHost');
-    testDTO = rpc.getProxyFunction('testDTO');
+    //     addEventListener(event, listener) {
+    //         if (event === 'CounterChanged') {
+    //             this.listeners.push(listener);
+    //         }
+    //     }
+    //     removeEventListener(event, listener) {
+    //         if (event === 'CounterChanged') {
+    //             const idx = this.listeners.indexOf(listener);
+    //             if (idx >= 0) {
+    //                 this.listeners.splice(idx, 1);
+    //             }
+    //         }
+    //     }
+    // }
+    // rpc.registerHostClass('TestService', TestService, {
+    //     instance: {
+    //         functions:[
+    //             { name: 'Increment', returns: 'void' },
+    //         ],
+    //         proxiedProperties: ['Counter'],
+    //         events: ['CounterChanged']
+    //     }
+    // });
+
+    // testServiceInstance = new TestService();
+    // rpc.registerHostFunction('getTestService', () => testServiceInstance, {});
+
+    // rpc.sendRemoteDescriptors();
+
+    // service = rpc.getProxyObject('service');
+    // squareIt = rpc.getProxyFunction('squareIt');
+    // MyService = rpc.getProxyClass('MyService');
+    // testJsHost = rpc.getProxyFunction('testJsHost');
+    // testDTO = rpc.getProxyFunction('testDTO');
 });
 
 

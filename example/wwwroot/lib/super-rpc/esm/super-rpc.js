@@ -479,7 +479,7 @@ export class SuperRPC {
                     proxyFunc = _this.createProxyFunction(objId, descr, 'method_call');
                     addListenerFunctions.set(eventName, proxyFunc);
                 }
-                proxyFunc(listener);
+                proxyFunc.call(this, listener);
             };
             obj.removeEventListener = function (eventName, listener) {
                 if (!eventNames.includes(eventName))
@@ -490,7 +490,7 @@ export class SuperRPC {
                     proxyFunc = _this.createProxyFunction(objId, descr, 'method_call');
                     removeListenerFunctions.set(eventName, proxyFunc);
                 }
-                proxyFunc(listener);
+                proxyFunc.call(this, listener);
             };
         }
         obj[proxyObjectId] = objId;
