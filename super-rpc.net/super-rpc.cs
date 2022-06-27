@@ -627,7 +627,11 @@ public class SuperRPC
                 // custom deserializers
                 var deserializer = GetDeserializer(type);
                 if (deserializer is not null) {
-                    obj = deserializer(obj, type);
+                    var obj1 = deserializer(obj, type);
+                    if (obj1 is not null) {
+                        obj = obj1;
+                        objType = obj.GetType();
+                    }
                 }
 
                 if (!objType.IsAssignableTo(type) && obj is IConvertible) {
