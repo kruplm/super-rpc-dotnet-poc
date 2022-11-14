@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -786,7 +787,18 @@ public class SuperRPC
             var ctx = ownCtx ? new CallContext(context.replyChannel) { replySent = new TaskCompletionSource() } : context;
 
             var asyncCallback = CreateAsyncCallback(UnwrapTaskReturnType(typeof(TReturn)));
-            lock (asyncCallbacks) asyncCallbacks.Add(callId.ToString(), asyncCallback);
+
+            try
+            {
+                lock (asyncCallbacks)
+                {
+                    asyncCallbacks.Add(callId.ToString(), asyncCallback);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex.ToString());
+            }
 
             SendAsyncIfPossible(new RPC_AnyCallTypeFnCallMessage {
                 action = action,
